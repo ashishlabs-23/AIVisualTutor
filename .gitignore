@@ -1,0 +1,13 @@
+.gradle/
+build/
+composeApp/build/
+out/
+.idea/
+.kotlin/
+*.iml
+.DS_Store
+local.properties
+wgc-bridge/bin/
+wgc-bridge/obj/
+wgc-bridge/WgcSharp/**/bin/
+wgc-bridge/WgcSharp/**/obj/

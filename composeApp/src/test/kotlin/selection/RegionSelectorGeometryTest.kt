@@ -1,10 +1,25 @@
 package selection
 
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.key.KeyEventType
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class RegionSelectorGeometryTest {
+
+    @Test
+    fun escapeDownAndUpAreBothConsumedBeforeCancellation() {
+        val sequence = EscapeKeySequence()
+        var consumed = 0
+        var cancellations = 0
+        assertTrue(sequence.handle(KeyEventType.KeyDown, { consumed++ }, { cancellations++ }))
+        assertEquals(1, consumed)
+        assertEquals(0, cancellations)
+        assertTrue(sequence.handle(KeyEventType.KeyUp, { consumed++ }, { cancellations++ }))
+        assertEquals(1, consumed)
+        assertEquals(1, cancellations)
+    }
 
     @Test
     fun oneToOneDisplayPreservesPointerDownAndUpBounds() {
@@ -46,6 +61,21 @@ class RegionSelectorGeometryTest {
 
         assertEquals(PixelCrop(40, 20, 360, 160), forward)
         assertEquals(forward, reverse)
+    }
+
+    @Test
+    fun allFourDragDirectionsSelectTheSameDesktopImagePixels() {
+        val display = DisplayRect(left = 0f, top = 0f, width = 400f, height = 300f)
+        val corners = listOf(
+            Offset(40f, 50f) to Offset(160f, 190f),
+            Offset(160f, 50f) to Offset(40f, 190f),
+            Offset(40f, 190f) to Offset(160f, 50f),
+            Offset(160f, 190f) to Offset(40f, 50f)
+        )
+        val crops = corners.map { (start, end) ->
+            selectionToImageCrop(start, end, display, imageWidth = 400, imageHeight = 300)
+        }
+        assertEquals(List(4) { PixelCrop(40, 50, 120, 140) }, crops)
     }
 
     @Test
@@ -94,4 +124,3 @@ class RegionSelectorGeometryTest {
         assertEquals(100f, logicalHeight)
     }
 }
-

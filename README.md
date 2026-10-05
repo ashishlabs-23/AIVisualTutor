@@ -4,7 +4,7 @@ AI Visual Tutor is a Windows desktop application built with Kotlin and Compose M
 
 ---
 
-## Current Status: Phase 1 & Phase 2 Implemented
+## Current Status: Phases 1–3 Implemented (Phase 3 acquisition scaffolding)
 
 The repository contains the complete implementation of **Phase 1** and **Phase 2**:
 
@@ -21,8 +21,12 @@ The repository contains the complete implementation of **Phase 1** and **Phase 2
   * Standalone Windows distribution packaging (.exe and .msi) with bundled native dependencies.
 
 > [!NOTE]
-> **Phase 3 (AI, OCR, VLM, and Screen Reasoning) is NOT started.**
-> All tutorial instructions and step highlights currently originate from mock workflows or manual user selections. No AI, OCR, or automated action verification has been implemented yet.
+> Phase 3 now wires universal region selection to a frozen per-monitor snapshot and VisualContext pipeline. OCR/classification remain placeholders. Active-window and mixed-DPI mapping implementations are present but still need validation on real monitor configurations.
+
+| Shortcut | Action |
+| --- | --- |
+| Ctrl+Alt+F12 | Capture previous external window (Phase 2) |
+| Ctrl+Shift+Space | Open region selection (Phase 3) |
 
 ---
 
@@ -47,7 +51,14 @@ AIVisualTutor/
 │   │   │   ├── Main.kt                      # Application entry point and window lifecycle orchestrator
 │   │   │   ├── bridge/                      # Native capture and hotkey interop
 │   │   │   │   ├── CaptureBridge.kt         # Client invoking wgc-bridge.exe
-│   │   │   │   └── GlobalCaptureHotkey.kt   # System-wide Ctrl+Alt+F12 hotkey listener
+│   │   │   │   ├── GlobalCaptureHotkey.kt   # System-wide Ctrl+Alt+F12 and Ctrl+Shift+Space
+│   │   │   │   └── ScreenCaptureService.kt  # WGC and frozen snapshot crop paths
+│   │   │   ├── context/                     # Selection state, app context, OCR and processing contracts
+│   │   │   │   ├── ApplicationContextProvider.kt
+│   │   │   │   ├── ContextProcessor.kt
+│   │   │   │   ├── RegionSelectionController.kt
+│   │   │   │   ├── VisualContext.kt
+│   │   │   │   └── VisualContextAcquisition.kt
 │   │   │   ├── models/                      # Immutable data models
 │   │   │   │   ├── ApplicationType.kt       # Supported app enum (Blender, PDF, Excel)
 │   │   │   │   ├── HighlightRegion.kt       # Screen coordinate model (x, y, w, h)
@@ -89,6 +100,8 @@ AIVisualTutor/
 └── gradlew.bat                              # Windows Gradle wrapper script
 ```
 
+Phase 3 additions include `composeApp/src/main/kotlin/context/VisualContext.kt`, the extended `bridge/GlobalCaptureHotkey.kt` and `bridge/ScreenCaptureService.kt`, the geometry test in `composeApp/src/test/kotlin/context/`, `docs/PHASE_3.md`, the Windows verification checklist and results template, and `scripts/verify-phase3.ps1`.
+
 ---
 
 ## Quick Start
@@ -126,3 +139,4 @@ For in-depth architecture, design decisions, and setup instructions, refer to th
 * [Technical Requirements & Boundaries](docs/REQUIREMENTS.md)
 * [Phase 1 Specification: UI & Overlay Foundation](docs/PHASE_1.md)
 * [Phase 2 Specification: Screen Capture & Selection](docs/PHASE_2.md)
+* [Phase 3 Specification: Universal Region Selection](docs/PHASE_3.md)

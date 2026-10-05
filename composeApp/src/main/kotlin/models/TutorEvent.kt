@@ -47,4 +47,6 @@ sealed interface TutorEvent {
         val region: HighlightRegion?,
         override val timestampMillis: Long = System.currentTimeMillis()
     ) : TutorEvent
+
+    data class VisualContextCreated(val visualContext: context.VisualContext, override val timestampMillis: Long = System.currentTimeMillis()) : TutorEvent
 }

@@ -7,10 +7,8 @@ import androidx.compose.runtime.setValue
 /**
  * Controls visibility of the transparent overlay window.
  *
- * True mouse click-through is not implemented: a transparent top-level
- * window can still receive mouse input in its transparent areas. Phase 1
- * provides an explicit close control on the overlay so it can always be
- * dismissed without depending on the tutor window being reachable.
+ * The overlay window applies native WS_EX_TRANSPARENT click-through; this
+ * class owns visibility only. The separate close control remains interactive.
  */
 class OverlayManager {
 

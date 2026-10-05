@@ -1,6 +1,16 @@
 package bridge
 
+import context.ContextLogger
+import context.LifecycleEvent
+import context.StderrContextLogger
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.BufferedReader
 import java.io.BufferedWriter
@@ -8,18 +18,93 @@ import java.io.InputStreamReader
 import java.io.OutputStreamWriter
 import java.nio.charset.StandardCharsets
 import java.util.Base64
-import kotlin.concurrent.thread
 import java.util.concurrent.TimeUnit
+import kotlin.concurrent.thread
 
-class GlobalCaptureHotkey {
-    private var process: Process? = null
-    private var controlWriter: BufferedWriter? = null
+enum class HotkeyAction { PREVIOUS_WINDOW, SELECT_REGION }
+data class HotkeyRegistrationResult(val captureRegistered: Boolean, val regionRegistered: Boolean, val diagnostic: String? = null) {
+    val anyRegistered get() = captureRegistered || regionRegistered
+}
 
-    suspend fun start(onHotkeyPressed: () -> Unit): String? = withContext(Dispatchers.IO) {
-        if (!System.getProperty("os.name").startsWith("Windows", ignoreCase = true)) {
-            return@withContext "Global capture shortcut is only supported on Windows."
+/** Injectable platform seam so registration lifecycle is unit-testable without Windows. */
+interface HotkeyPlatform {
+    suspend fun register(onAction: (HotkeyAction) -> Unit): HotkeyRegistrationResult
+    fun unregister()
+}
+
+interface GlobalHotkeyManager : AutoCloseable {
+    suspend fun start(onHotkeyPressed: () -> Unit, onRegionHotkeyPressed: () -> Unit = {}): String?
+}
+
+class GlobalCaptureHotkey(
+    private val platform: HotkeyPlatform = PowerShellHotkeyPlatform(),
+    private val logger: ContextLogger = StderrContextLogger()
+) : GlobalHotkeyManager {
+    private val lock = Mutex()
+    private val callbacks = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    @Volatile private var registered = false
+    private var startAttempted = false
+    @Volatile private var lastStatus: String? = null
+
+    override suspend fun start(onHotkeyPressed: () -> Unit, onRegionHotkeyPressed: () -> Unit): String? = lock.withLock {
+        if (startAttempted) return@withLock lastStatus
+        startAttempted = true
+        val outcome = try {
+            withContext(Dispatchers.IO) {
+                platform.register { action ->
+                    callbacks.launch {
+                        logger.event(LifecycleEvent.HOTKEY_TRIGGERED, mapOf("state" to action.name))
+                        when (action) {
+                            HotkeyAction.PREVIOUS_WINDOW -> onHotkeyPressed()
+                            HotkeyAction.SELECT_REGION -> onRegionHotkeyPressed()
+                        }
+                    }
+                }
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            startAttempted = false
+            throw e
+        } catch (e: Exception) {
+            HotkeyRegistrationResult(false, false, e.message ?: "Hotkey registration failed.")
         }
+        registered = outcome.anyRegistered
+        val ids = when {
+            outcome.captureRegistered && outcome.regionRegistered -> "both"
+            outcome.captureRegistered -> "capture"
+            outcome.regionRegistered -> "region"
+            else -> "none"
+        }
+        logger.event(LifecycleEvent.HOTKEY_REGISTERED, mapOf("registeredIds" to ids))
+        lastStatus = when {
+            outcome.captureRegistered && outcome.regionRegistered -> null
+            outcome.captureRegistered -> "Ctrl+Shift+Space could not be registered; Ctrl+Alt+F12 remains available."
+            outcome.regionRegistered -> "Ctrl+Alt+F12 could not be registered; Ctrl+Shift+Space remains available."
+            else -> "Could not register global shortcuts. ${outcome.diagnostic.orEmpty()}".trim()
+        }
+        lastStatus
+    }
 
+    override fun close() {
+        runBlocking {
+            lock.withLock {
+                if (registered) withContext(Dispatchers.IO) { platform.unregister() }
+                registered = false
+                lastStatus = null
+                callbacks.cancel()
+            }
+        }
+    }
+}
+
+/** Win32 RegisterHotKey lives in an isolated PowerShell message-pump process. */
+class PowerShellHotkeyPlatform : HotkeyPlatform {
+    @Volatile private var process: Process? = null
+    @Volatile private var writer: BufferedWriter? = null
+
+    override suspend fun register(onAction: (HotkeyAction) -> Unit): HotkeyRegistrationResult = withContext(Dispatchers.IO) {
+        if (!System.getProperty("os.name").startsWith("Windows", ignoreCase = true)) {
+            return@withContext HotkeyRegistrationResult(false, false, "Global shortcuts are supported only on Windows.")
+        }
         val source64 = Base64.getEncoder().encodeToString(HOST_SOURCE.toByteArray(StandardCharsets.UTF_8))
         val script = """
             ${'$'}ErrorActionPreference = 'Stop'
@@ -27,96 +112,46 @@ class GlobalCaptureHotkey {
             Add-Type -TypeDefinition ${'$'}source
             [TutorGlobalHotkeyHost]::Run()
         """.trimIndent()
-
-        val startedProcess = try {
-            ProcessBuilder(
-                "powershell.exe",
-                "-NoProfile",
-                "-NonInteractive",
-                "-Command",
-                script
-            ).redirectErrorStream(false).start()
-        } catch (exception: Exception) {
-            return@withContext "Could not start global shortcut registration: ${exception.message}"
+        val child = try {
+            ProcessBuilder("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script).redirectErrorStream(true).start()
+        } catch (e: Exception) {
+            return@withContext HotkeyRegistrationResult(false, false, e.message ?: "Could not start Win32 hotkey host.")
         }
-
-        val errors = StringBuffer()
-        thread(name = "capture-hotkey-stderr", isDaemon = true) {
+        val reader = BufferedReader(InputStreamReader(child.inputStream, StandardCharsets.UTF_8))
+        val ready = try { reader.readLine() } catch (e: Exception) { child.destroyForcibly(); return@withContext HotkeyRegistrationResult(false, false, e.message) }
+        if (ready == null || !ready.startsWith("READY:")) {
+            val diag = generateSequence { if (reader.ready()) reader.readLine() else null }.joinToString(" ")
+            child.destroyForcibly()
+            return@withContext HotkeyRegistrationResult(false, false, diag.ifBlank { "Windows rejected both shortcuts." })
+        }
+        val capture = ready.getOrNull(6) == '1'
+        val region = ready.getOrNull(7) == '1'
+        if (!capture && !region) {
+            child.destroyForcibly()
+            return@withContext HotkeyRegistrationResult(false, false, "Windows rejected Ctrl+Alt+F12 and Ctrl+Shift+Space.")
+        }
+        process = child
+        writer = BufferedWriter(OutputStreamWriter(child.outputStream, StandardCharsets.UTF_8))
+        thread(name = "aivt-global-hotkey-events", isDaemon = true) {
             try {
-                startedProcess.errorStream.bufferedReader().use { reader ->
-                    reader.forEachLine { line ->
-                        synchronized(errors) {
-                            if (errors.isNotEmpty()) errors.appendLine()
-                            errors.append(line)
-                        }
+                reader.useLines { lines -> lines.forEach { line ->
+                    when (line) {
+                        "HOTKEY_CAPTURE" -> onAction(HotkeyAction.PREVIOUS_WINDOW)
+                        "HOTKEY_REGION" -> onAction(HotkeyAction.SELECT_REGION)
                     }
-                }
-            } catch (_: Exception) {
-                // Process shutdown can close the diagnostic stream.
-            }
+                } }
+            } catch (_: Exception) { /* close() shuts down the message-pump process */ }
         }
-
-        val stdout = BufferedReader(InputStreamReader(startedProcess.inputStream, StandardCharsets.UTF_8))
-        val firstLine = try {
-            stdout.readLine()
-        } catch (exception: Exception) {
-            startedProcess.destroyForcibly()
-            return@withContext "Could not register global capture shortcut: ${exception.message}"
-        }
-
-        if (firstLine != "READY") {
-            val exitCode = if (startedProcess.isAlive) {
-                startedProcess.destroyForcibly()
-                null
-            } else {
-                startedProcess.waitFor()
-            }
-            val diagnostic = synchronized(errors) { errors.toString().trim() }
-            return@withContext buildString {
-                append("Could not register Ctrl+Alt+F12.")
-                if (exitCode != null) append(" Registration process exited with code $exitCode.")
-                if (diagnostic.isNotEmpty()) append(" $diagnostic")
-            }
-        }
-
-        process = startedProcess
-        controlWriter = BufferedWriter(OutputStreamWriter(startedProcess.outputStream, StandardCharsets.UTF_8))
-        thread(name = "capture-hotkey-events", isDaemon = true) {
-            try {
-                stdout.use { reader ->
-                    while (true) {
-                        when (reader.readLine() ?: break) {
-                            "HOTKEY" -> onHotkeyPressed()
-                        }
-                    }
-                }
-            } catch (_: Exception) {
-                // The process is stopped when the application is disposed.
-            }
-        }
-
-        null
+        HotkeyRegistrationResult(capture, region)
     }
 
-    fun close() {
-        val activeProcess = process ?: return
+    override fun unregister() {
+        val child = process ?: return
         try {
-            controlWriter?.apply {
-                write("STOP")
-                newLine()
-                flush()
-                close()
-            }
-            if (!activeProcess.waitFor(2, TimeUnit.SECONDS)) {
-                activeProcess.destroyForcibly()
-                activeProcess.waitFor()
-            }
-        } catch (_: Exception) {
-            activeProcess.destroyForcibly()
-        } finally {
-            controlWriter = null
-            process = null
-        }
+            writer?.apply { write("STOP"); newLine(); flush(); close() }
+            if (!child.waitFor(2, TimeUnit.SECONDS)) { child.destroyForcibly(); child.waitFor() }
+        } catch (_: Exception) { child.destroyForcibly() }
+        finally { writer = null; process = null }
     }
 
     private companion object {
@@ -124,70 +159,25 @@ class GlobalCaptureHotkey {
             using System;
             using System.Runtime.InteropServices;
             using System.Threading.Tasks;
-
             public static class TutorGlobalHotkeyHost {
-                private const int HotkeyId = 1;
-                private const uint ModAlt = 0x0001;
-                private const uint ModControl = 0x0002;
-                private const uint ModNoRepeat = 0x4000;
-                private const uint VirtualKeyF12 = 0x7B;
-                private const uint WmHotkey = 0x0312;
-                private const uint WmQuit = 0x0012;
-
-                [StructLayout(LayoutKind.Sequential)]
-                private struct Message {
-                    public IntPtr Window;
-                    public uint Id;
-                    public UIntPtr WParam;
-                    public IntPtr LParam;
-                    public uint Time;
-                    public int X;
-                    public int Y;
-                }
-
-                [DllImport("user32.dll", SetLastError = true)]
-                private static extern bool RegisterHotKey(IntPtr window, int id, uint modifiers, uint key);
-
-                [DllImport("user32.dll", SetLastError = true)]
-                private static extern bool UnregisterHotKey(IntPtr window, int id);
-
-                [DllImport("user32.dll", SetLastError = true)]
-                private static extern int GetMessage(out Message message, IntPtr window, uint min, uint max);
-
-                [DllImport("user32.dll", SetLastError = true)]
-                private static extern bool PostThreadMessage(uint threadId, uint message, UIntPtr wParam, IntPtr lParam);
-
-                [DllImport("kernel32.dll")]
-                private static extern uint GetCurrentThreadId();
-
+                private const int CaptureId = 1, RegionId = 2;
+                private const uint ModAlt=0x0001, ModControl=0x0002, ModShift=0x0004, ModNoRepeat=0x4000;
+                private const uint VkF12=0x7B, VkSpace=0x20, WmHotkey=0x0312, WmQuit=0x0012;
+                [StructLayout(LayoutKind.Sequential)] private struct Message { public IntPtr Window; public uint Id; public UIntPtr WParam; public IntPtr LParam; public uint Time; public int X; public int Y; }
+                [DllImport("user32.dll", SetLastError=true)] private static extern bool RegisterHotKey(IntPtr h,int id,uint mod,uint key);
+                [DllImport("user32.dll", SetLastError=true)] private static extern bool UnregisterHotKey(IntPtr h,int id);
+                [DllImport("user32.dll", SetLastError=true)] private static extern int GetMessage(out Message m,IntPtr h,uint min,uint max);
+                [DllImport("user32.dll", SetLastError=true)] private static extern bool PostThreadMessage(uint id,uint msg,UIntPtr w,IntPtr l);
+                [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
                 public static int Run() {
-                    if (!RegisterHotKey(IntPtr.Zero, HotkeyId, ModControl | ModAlt | ModNoRepeat, VirtualKeyF12)) {
-                        Console.Error.WriteLine("Windows rejected Ctrl+Alt+F12 (it may already be registered).");
-                        return Marshal.GetLastWin32Error();
-                    }
-
-                    uint threadId = GetCurrentThreadId();
-                    Console.Out.WriteLine("READY");
-                    Console.Out.Flush();
-
-                    Task.Run(() => {
-                        Console.ReadLine();
-                        PostThreadMessage(threadId, WmQuit, UIntPtr.Zero, IntPtr.Zero);
-                    });
-
-                    try {
-                        Message message;
-                        while (GetMessage(out message, IntPtr.Zero, 0, 0) > 0) {
-                            if (message.Id == WmHotkey && message.WParam.ToUInt64() == HotkeyId) {
-                                Console.Out.WriteLine("HOTKEY");
-                                Console.Out.Flush();
-                            }
-                        }
-                    }
-                    finally {
-                        UnregisterHotKey(IntPtr.Zero, HotkeyId);
-                    }
-
+                    bool capture=RegisterHotKey(IntPtr.Zero,CaptureId,ModControl|ModAlt|ModNoRepeat,VkF12);
+                    bool region=RegisterHotKey(IntPtr.Zero,RegionId,ModControl|ModShift|ModNoRepeat,VkSpace);
+                    if(!capture && !region) { Console.WriteLine("FAIL:both"); Console.Out.Flush(); return Marshal.GetLastWin32Error(); }
+                    uint threadId=GetCurrentThreadId();
+                    Console.WriteLine("READY:"+(capture?"1":"0")+(region?"1":"0")); Console.Out.Flush();
+                    Task.Run(()=>{ Console.ReadLine(); PostThreadMessage(threadId,WmQuit,UIntPtr.Zero,IntPtr.Zero); });
+                    try { Message m; while(GetMessage(out m,IntPtr.Zero,0,0)>0) { if(m.Id==WmHotkey) { if(m.WParam.ToUInt64()==CaptureId) Console.WriteLine("HOTKEY_CAPTURE"); else if(m.WParam.ToUInt64()==RegionId) Console.WriteLine("HOTKEY_REGION"); Console.Out.Flush(); } } }
+                    finally { if(capture) UnregisterHotKey(IntPtr.Zero,CaptureId); if(region) UnregisterHotKey(IntPtr.Zero,RegionId); }
                     return 0;
                 }
             }

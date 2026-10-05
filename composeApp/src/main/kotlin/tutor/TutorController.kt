@@ -7,6 +7,11 @@ import models.ApplicationType
 import models.HighlightRegion
 import models.TutorState
 import models.TutorStep
+import models.SessionContext
+import models.TutorEvent
+import context.VisualContext
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 
 /**
  * Owns the single [TutorState] instance and every operation that can
@@ -15,6 +20,16 @@ import models.TutorStep
  * ownership in one place instead of scattered across Main.kt.
  */
 class TutorController {
+
+    var sessionContext by mutableStateOf(SessionContext())
+        private set
+    private val mutableEvents = MutableSharedFlow<TutorEvent>(replay = 16, extraBufferCapacity = 16)
+    val events = mutableEvents.asSharedFlow()
+
+    fun recordVisualContext(visualContext: VisualContext) {
+        sessionContext = sessionContext.copy(lastVisualContext = visualContext)
+        mutableEvents.tryEmit(TutorEvent.VisualContextCreated(visualContext))
+    }
 
     var state by mutableStateOf(TutorState())
         private set

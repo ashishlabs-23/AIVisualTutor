@@ -25,14 +25,14 @@ This document details the software, hardware, runtime, and architectural require
 * **RAM:** 4 GB minimum (8 GB recommended for development and packaging).
 * **Display:**
   * Single or multi-monitor configurations supported.
-  * Standard DPI (100%) and High-DPI scaling (125%, 150%, 200%) supported.
+  * Per-monitor Robot variants and mixed-DPI crop mapping are implemented; real Windows mixed-DPI behavior remains unverified.
   * GPU with DirectX 11 / OpenGL 3.3+ support for Skiko rendering.
 
 ---
 
 ## 3. Project Scope Boundaries
 
-### In Scope (Implemented in Phase 1 & Phase 2)
+### In Scope (Implemented in Phases 1–3)
 * **Phase 1: Tutor UI & Live Visual Overlay Foundation**
   * Collapsible side panel and floating dock (`TutorPanel`, `TutorDock`).
   * Application selector supporting hardcoded mock workflows for **Blender**, **PDF**, and **Excel**.
@@ -47,10 +47,13 @@ This document details the software, hardware, runtime, and architectural require
   * Screenshot preview window (`ScreenshotPreviewWindow`) with temporary file lifecycle management.
   * Global capture hotkey listener (`Ctrl+Alt+F12`).
   * Automated packaging of standalone Windows distributions (.exe / .msi) with bundled native resources.
+* **Phase 3: Universal region context acquisition scaffolding**
+  * Ctrl+Shift+Space selection shortcut alongside the Phase 2 shortcut.
+  * VisualContext, OCR/classifier interfaces, placeholder processing, and pure selection geometry.
 
-### Out of Scope (Phase 3 & Future Work)
+### Out of Scope (Phase 4 & Future Work)
 * **No AI / LLM / VLM:** Instruction generation is not dynamic; steps are mock data from `MockTutorData.kt`.
-* **No OCR / Text Recognition:** Text on screen is not extracted or parsed.
+* **No production OCR / Text Recognition:** Phase 3 defines an OCR interface, but the default service is a placeholder and extracts no screen text.
 * **No Computer Vision / Object Detection:** Coordinates are pre-defined or user-selected, not inferred from image recognition.
 * **No Real-Time Action Verification:** The application does not monitor user actions to confirm task completion.
 * **No Continuous Video Streaming:** Screen frames are acquired only on-demand when explicitly triggered.

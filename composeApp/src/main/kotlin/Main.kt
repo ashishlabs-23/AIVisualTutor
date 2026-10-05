@@ -31,6 +31,16 @@ import ui.TutorPanel
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.Paths
+import context.ContextProcessor
+import context.StderrContextLogger
+import context.RegionSelectionController
+import context.VisualContextAcquisition
+import context.WindowsApplicationContextProvider
+import context.WindowsWindowFocusManager
+import context.SelectionSession
+import models.HighlightRegion
+import bridge.WgcScreenCaptureService
+import bridge.FrozenSnapshotRegionCaptureService
 
 /**
  * Application entry point.
@@ -48,7 +58,12 @@ fun main() = application {
     val controller = remember { TutorController() }
     val overlayManager = remember { OverlayManager() }
     val previewScope = rememberCoroutineScope()
-    val globalCaptureHotkey = remember { GlobalCaptureHotkey() }
+    val lifecycleLogger = remember { StderrContextLogger() }
+    val globalCaptureHotkey = remember { GlobalCaptureHotkey(logger = lifecycleLogger) }
+    val contextProcessor = remember { ContextProcessor(logger = lifecycleLogger) }
+    val regionCapture = remember { WgcScreenCaptureService(lifecycleLogger) }
+    val selectionController = remember { RegionSelectionController(lifecycleLogger) }
+    val acquisition = remember { VisualContextAcquisition(selectionController, WindowsApplicationContextProvider(), regionCapture, contextProcessor, WindowsWindowFocusManager()) }
 
     // Start with the full panel so the first-run UI is immediately visible.
     var isPanelExpanded by remember { mutableStateOf(true) }
@@ -56,24 +71,39 @@ fun main() = application {
     var isTutorWindowsVisible by remember { mutableStateOf(true) }
     var selectorSnapshot by remember { mutableStateOf<FrozenScreenSnapshot?>(null) }
     var restoreTutorWindowsVisible by remember { mutableStateOf(true) }
+    var activeSelectionSession by remember { mutableStateOf<SelectionSession?>(null) }
     var previewPngPath by remember { mutableStateOf<String?>(null) }
     var captureStatus by remember { mutableStateOf<String?>(null) }
     var isCaptureInProgress by remember { mutableStateOf(false) }
 
     suspend fun openRegionSelector() {
         if (isRegionSelectorOpen || selectorSnapshot != null) return
+        if (previewPngPath != null || isCaptureInProgress) {
+            captureStatus = "Close the current preview or wait for capture to finish before selecting a region."
+            return
+        }
 
+        val session = acquisition.begin()
+        if (session == null) {
+            captureStatus = "A region selection is already active."
+            return
+        }
+        activeSelectionSession = session
         val previousVisibility = isTutorWindowsVisible
         restoreTutorWindowsVisible = previousVisibility
-        isTutorWindowsVisible = false
         try {
+            // begin() queries the foreground application before the tutor windows are hidden.
+            isTutorWindowsVisible = false
             delay(200)
             val snapshot = withContext(Dispatchers.IO) {
                 captureFrozenScreenSnapshot()
             }
             selectorSnapshot = snapshot
             isRegionSelectorOpen = true
+            lifecycleLogger.event(context.LifecycleEvent.OVERLAY_SHOWN, mapOf("regionId" to session.regionId, "state" to "SELECTING"))
         } catch (exception: Exception) {
+            acquisition.fail(session)
+            activeSelectionSession = null
             selectorSnapshot = null
             isRegionSelectorOpen = false
             isTutorWindowsVisible = previousVisibility
@@ -82,10 +112,21 @@ fun main() = application {
     }
 
     fun restoreAfterRegionSelection() {
-        selectorSnapshot?.image?.flush()
+        selectorSnapshot?.flush()
         selectorSnapshot = null
         isRegionSelectorOpen = false
         isTutorWindowsVisible = restoreTutorWindowsVisible
+        lifecycleLogger.event(context.LifecycleEvent.OVERLAY_CLOSED, mapOf("state" to "CLOSED"))
+        lifecycleLogger.event(context.LifecycleEvent.WINDOW_RESTORED, mapOf("state" to if (restoreTutorWindowsVisible) "VISIBLE" else "HIDDEN"))
+    }
+
+    fun restorePreviousFocusLater(session: SelectionSession?) {
+        if (session == null) return
+        previewScope.launch {
+            delay(180)
+            val restored = acquisition.restorePreviousFocus(session)
+            lifecycleLogger.event(context.LifecycleEvent.FOCUS_RESTORED, mapOf("regionId" to session.regionId, "state" to if (restored) "RESTORED" else "NOT_RESTORED"))
+        }
     }
 
     suspend fun capturePreviousWindow() {
@@ -118,16 +159,21 @@ fun main() = application {
     }
 
     LaunchedEffect(globalCaptureHotkey) {
-        val registrationFailure = globalCaptureHotkey.start {
+        val registrationFailure = globalCaptureHotkey.start(onHotkeyPressed = {
             previewScope.launch {
                 capturePreviousWindow()
             }
-        }
+        }, onRegionHotkeyPressed = {
+            previewScope.launch { openRegionSelector() }
+        })
         captureStatus = registrationFailure
-            ?: "Global capture shortcut registered: Ctrl+Alt+F12"
+            ?: "Global shortcuts active: Ctrl+Alt+F12 (window), Ctrl+Shift+Space (region)"
     }
     DisposableEffect(globalCaptureHotkey) {
         onDispose { globalCaptureHotkey.close() }
+    }
+    DisposableEffect(controller) {
+        onDispose { controller.sessionContext.lastVisualContext?.image?.flush() }
     }
 
     val dockSize = DpSize(140.dp, 56.dp)
@@ -181,6 +227,14 @@ fun main() = application {
     }
 
     if (previewPngPath != null) {
+        DisposableEffect(previewPngPath) {
+            val pathToClean = previewPngPath
+            onDispose {
+                if (pathToClean != null) {
+                    runCatching { Files.deleteIfExists(Paths.get(pathToClean)) }
+                }
+            }
+        }
         ScreenshotPreviewWindow(
             pngPath = previewPngPath!!,
             onCloseRequest = {
@@ -218,7 +272,9 @@ fun main() = application {
         DisposableEffect(activeSelectorSnapshot) {
             onDispose {
                 if (!selectorCompleted) {
-                    activeSelectorSnapshot.image.flush()
+                    activeSelectionSession?.let { acquisition.cancel(it) }
+                    activeSelectionSession = null
+                    activeSelectorSnapshot.flush()
                     selectorSnapshot = null
                     isRegionSelectorOpen = false
                     isTutorWindowsVisible = restoreTutorWindowsVisible
@@ -228,22 +284,70 @@ fun main() = application {
         }
         RegionSelectorWindow(
             snapshot = activeSelectorSnapshot,
-            onRegionSelected = { pngPath, region ->
+            onRegionSelected = { desktopBounds ->
                 selectorCompleted = true
-                controller.setHighlight(region)
-                previewPngPath = pngPath
-                captureStatus = "Region screenshot captured."
-                restoreAfterRegionSelection()
+                // Close the fullscreen selector immediately; PROCESSING owns the session now.
+                // The underlying app is visible while the frozen snapshot is cropped/analyzed.
+                isRegionSelectorOpen = false
+                captureStatus = "Region captured; processing visual context..."
+                previewScope.launch {
+                    val session = activeSelectionSession
+                    val frozenSnapshot = selectorSnapshot
+                    try {
+                        checkNotNull(session) { "Selection session expired." }
+                        val result = acquisition.process(session, checkNotNull(frozenSnapshot), desktopBounds)
+                        controller.setHighlight(HighlightRegion(desktopBounds.x.toFloat(), desktopBounds.y.toFloat(), desktopBounds.width.toFloat(), desktopBounds.height.toFloat()))
+                        val oldImage = controller.sessionContext.lastVisualContext?.image
+                        if (oldImage !== result.image) oldImage?.flush()
+                        controller.recordVisualContext(result.visualContext)
+                        previewPngPath = withContext(Dispatchers.IO) { FrozenSnapshotRegionCaptureService(lifecycleLogger).persistPreview(result.image).toAbsolutePath().toString() }
+                        val appName = session.applicationContext?.applicationName ?: "Unknown application"
+                        captureStatus = "Visual context: ${result.visualContext.width} x ${result.visualContext.height}, ${result.visualContext.contentType}, ${result.visualContext.extractedText?.length ?: 0} OCR characters, $appName."
+                        kotlinx.coroutines.delay(250)
+                        acquisition.reset(session)
+                    } catch (exception: context.SelectionTooSmallException) {
+                        session?.let { acquisition.cancel(it) }
+                        captureStatus = "Selection is too small; choose a region larger than 8 physical pixels."
+                        restorePreviousFocusLater(session)
+                    } catch (exception: Exception) {
+                        session?.let { acquisition.fail(it) }
+                        captureStatus = "Region captured; context processing failed: ${exception.message}"
+                        restorePreviousFocusLater(session)
+                    } finally {
+                        session?.let { acquisition.reset(it) }
+                        restoreAfterRegionSelection()
+                        activeSelectionSession = null
+                    }
+                }
             },
             onCancel = {
-                selectorCompleted = true
-                restoreAfterRegionSelection()
-                captureStatus = null
+                if (!selectorCompleted) {
+                    selectorCompleted = true
+                    val session = activeSelectionSession
+                    session?.let { acquisition.cancel(it) }
+                    activeSelectionSession = null
+                    restoreAfterRegionSelection()
+                    captureStatus = "Region selection cancelled."
+                    lifecycleLogger.event(context.LifecycleEvent.SELECTION_STATE_IDLE, mapOf("regionId" to session?.regionId, "state" to "IDLE"))
+                    // Wait for Compose to remove the topmost selector and restore
+                    // tutor visibility before returning focus to the pre-hotkey HWND.
+                    restorePreviousFocusLater(session)
+                }
             },
             onFailure = { diagnostic ->
-                selectorCompleted = true
-                restoreAfterRegionSelection()
-                captureStatus = "Region capture failed: $diagnostic"
+                if (!selectorCompleted) {
+                    selectorCompleted = true
+                    val session = activeSelectionSession
+                    session?.let { acquisition.fail(it) }
+                    activeSelectionSession = null
+                    restoreAfterRegionSelection()
+                    captureStatus = "Region capture failed: $diagnostic"
+                    restorePreviousFocusLater(session)
+                }
+            },
+            onEscConsumed = {
+                lifecycleLogger.event(context.LifecycleEvent.ESC_RECEIVED, mapOf("regionId" to activeSelectionSession?.regionId, "state" to "ESC"))
+                lifecycleLogger.event(context.LifecycleEvent.ESC_CONSUMED, mapOf("regionId" to activeSelectionSession?.regionId, "state" to "CONSUMED"))
             }
         )
     }

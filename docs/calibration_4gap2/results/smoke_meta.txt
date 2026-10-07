@@ -1,0 +1,9 @@
+MODEL_OK=True
+MMPROJ_OK=True
+FreeGiB_before=4.99
+ARGS=-m C:\Users\PC\Desktop\AIVisualTutor\docs\calibration_4gap2\models\Qwen2-VL-2B-Instruct-Q4_K_M.gguf --mmproj C:\Users\PC\Desktop\AIVisualTutor\docs\calibration_4gap2\models\mmproj-Qwen2-VL-2B-Instruct-f16.gguf --image C:\Users\PC\Desktop\AIVisualTutor\docs\calibration_4gap2\crops\smoke_taskbar_start.png -f C:\Users\PC\Desktop\AIVisualTutor\docs\calibration_4gap2\results\smoke_prompt.txt -n 32 -ngl 0 --no-mmproj-offload --temp 0 -c 2048 -t 4
+TIMED_OUT=False
+EXIT_CODE=
+WALL_MS=4129
+PEAK_WS_GiB=2.381
+FreeGiB_after=4.99

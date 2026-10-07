@@ -24,8 +24,15 @@ dependencies {
     // Pulls in the correct Compose Desktop artifacts for whichever OS
     // Gradle is running on (Windows in your case).
     implementation(compose.desktop.currentOs)
+    implementation("net.sourceforge.tess4j:tess4j:5.20.0") {
+        // This app OCRs in-memory screenshots; PDF conversion support is unused.
+        exclude(group = "org.apache.pdfbox", module = "pdfbox")
+        exclude(group = "org.apache.pdfbox", module = "pdfbox-tools")
+        exclude(group = "org.apache.pdfbox", module = "jbig2-imageio")
+    }
 
     testImplementation(kotlin("test"))
+    testImplementation("org.slf4j:slf4j-nop:2.0.16")
 }
 
 val bridgePublishDirectory = rootProject.layout.projectDirectory.dir(
@@ -77,4 +84,12 @@ tasks.configureEach {
     if (name == "prepareAppResources") {
         dependsOn(stageWgcBridgeForDistribution)
     }
+}
+
+// CALIBRATION_HARNESS_TASK
+tasks.register<JavaExec>("runCalibrationHarness") {
+    group = "research"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("calibration.CalibrationHarnessKt")
+    if (project.hasProperty("calibManifest")) args(project.property("calibManifest"), project.property("calibOut"))
 }

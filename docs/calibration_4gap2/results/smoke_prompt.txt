@@ -1,0 +1,1 @@
+Locate the Windows Start button in this taskbar crop. Reply with approximate pixel coordinates [x,y] relative to the crop.

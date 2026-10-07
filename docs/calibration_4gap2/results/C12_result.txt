@@ -1,0 +1,27 @@
+caseId=C12
+category=conflict_notepad_menu_vs_body
+targetDescription=Select Cube.
+instructionFlag=MOCK_BLENDER_STEP3_FLAGGED_WIDE_REGION_MENU_PLUS_BODY
+region=40,70,600,200
+cropPath=C:\Users\PC\Desktop\AIVisualTutor\docs\calibration_4gap2\results\C12_crop.png
+appProcess=Notepad
+appTitle=*RegionSelector-Isolated-Test.txt - Notepad
+appHwnd=264134
+decision=ABSTAIN
+reason=visual_provider_not_configured
+uiaStatus=FAILURE
+ocrStatus=AVAILABLE
+visualAvailability=NOT_CONFIGURED
+visualInvocation=NOT_CONFIGURED
+uiaObject=null
+uiaText=null
+uiaBounds=null
+uiaConfidence=null
+ocrText=File Edit View Hy =y BIS @ - ve of CALIBRATION SECTION HEADER Read this highlighted paragraph about calibration evidence for OCR targets.
+ocrConfidence=0.7880245
+ocrWordCount=23
+ocrMillis=124
+perceptionMillis=462
+processingMillis=462
+groundTruthLabel=PENDING_LABEL
+groundTruthMatch=

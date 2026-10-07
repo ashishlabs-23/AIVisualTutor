@@ -29,7 +29,7 @@ class PowerShellForegroundWindowApi : ForegroundWindowApi {
                 IntPtr h=GetForegroundWindow(); uint pid; GetWindowThreadProcessId(h,out pid);
                 if(h==IntPtr.Zero || pid==0 || pid==excluded) return "";
                 try { var p=Process.GetProcessById((int)pid); var t=new StringBuilder(2048); GetWindowText(h,t,t.Capacity); RECT r; GetWindowRect(h,out r);
-                  return Convert.ToBase64String(Encoding.UTF8.GetBytes(p.ProcessName))+"|"+pid+"|"+r.Left+"|"+r.Top+"|"+(r.Right-r.Left)+"|"+(r.Bottom-r.Top)+"|"+Convert.ToBase64String(Encoding.UTF8.GetBytes(t.ToString()));
+                  return Convert.ToBase64String(Encoding.UTF8.GetBytes(p.ProcessName))+"|"+pid+"|"+r.Left+"|"+r.Top+"|"+(r.Right-r.Left)+"|"+(r.Bottom-r.Top)+"|"+Convert.ToBase64String(Encoding.UTF8.GetBytes(t.ToString()))+"|"+h.ToInt64();
                 } catch { return ""; }
               }
             }
@@ -41,12 +41,13 @@ class PowerShellForegroundWindowApi : ForegroundWindowApi {
         val output = process.inputStream.bufferedReader().use { it.readText().trim() }
         if (process.exitValue() != 0 || output.isBlank()) return null
         val parts = output.lineSequence().last().split('|')
-        if (parts.size != 7) return null
+        if (parts.size != 8) return null
         val processName = decode(parts[0])
         val pid = parts[1].toLongOrNull() ?: return null
         val bounds = runCatching { Rectangle(parts[2].toInt(), parts[3].toInt(), parts[4].toInt(), parts[5].toInt()) }.getOrNull()
         val title = decode(parts[6])
-        return ApplicationContext(applicationName = processName, processName = processName, windowTitle = title, pid = pid, windowBounds = bounds)
+        val windowHandle = parts[7].toLongOrNull() ?: return null
+        return ApplicationContext(applicationName = processName, processName = processName, windowTitle = title, pid = pid, windowBounds = bounds, windowHandle = windowHandle)
     }
 
     private fun decode(value: String) = runCatching { String(java.util.Base64.getDecoder().decode(value), Charsets.UTF_8) }.getOrDefault("")

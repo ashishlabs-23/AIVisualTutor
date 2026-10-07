@@ -7,8 +7,29 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import models.ApplicationType
 import models.HighlightRegion
+import models.TutorStep
 
 class TutorControllerTest {
+    @Test
+    fun mockStepsProvideNonBlankInstructionForTargetDescriptionSource() {
+        listOf(ApplicationType.BLENDER, ApplicationType.PDF, ApplicationType.EXCEL).forEach { application ->
+            val steps = MockTutorData.stepsFor(application)
+            assertTrue(steps.all { it.instruction.isNotBlank() })
+        }
+    }
+
+    @Test
+    fun currentTargetDescriptionTracksCurrentStepAndRemainsAbsentForBlankInstruction() {
+        val controller = TutorController()
+        assertEquals(controller.currentStep.instruction, controller.currentTargetDescription)
+        controller.nextStep()
+        assertEquals(controller.currentStep.instruction, controller.currentTargetDescription)
+        assertEquals(null, controller.targetDescriptionForStep(TutorStep(
+            id = 1, title = "No target", instruction = " ", description = "",
+            stepNumber = 1, totalSteps = 1
+        )))
+    }
+
 
     @Test
     fun startsAtFirstBlenderStepWithItsHighlight() {

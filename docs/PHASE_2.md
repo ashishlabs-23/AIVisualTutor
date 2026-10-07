@@ -84,7 +84,5 @@ Phase 2 implements on-demand visual context acquisition for **AI Visual Tutor**,
 ## 3. Scope Boundaries & Next Phase
 
 * **Phase 2 Status:** Implemented, compiled, unit-tested, and packaged into standalone Windows distributions.
-* **Phase 3 (Not Started):**
-  * Automated screen reasoning (OCR, Vision-Language Models, RAG).
-  * Semantic screen element identification.
-  * Real-time user action verification and adaptive learning loops.
+* **Phase 3:** Universal region selection and context acquisition are implemented; see [`PHASE_3.md`](PHASE_3.md).
+* **Phase 4:** OCR, visual-grounding boundaries, and semantic perception/evaluation are covered in [`PHASE_4.md`](PHASE_4.md). Visual grounding remains unconfigured, and correctness is pending human ground truth.

@@ -24,15 +24,15 @@ This document details the software, hardware, runtime, and architectural require
 * **Processor:** 64-bit x86-64 processor (2.0 GHz or faster recommended).
 * **RAM:** 4 GB minimum (8 GB recommended for development and packaging).
 * **Display:**
-  * Single or multi-monitor configurations supported.
-  * Per-monitor Robot variants and mixed-DPI crop mapping are implemented; real Windows mixed-DPI behavior remains unverified.
+  * The selector and capture code include per-monitor snapshot/crop handling and negative desktop origins.
+  * Real Windows mixed-DPI and multi-monitor alignment remain unverified; consult the checklist in `PHASE_3.md`.
   * GPU with DirectX 11 / OpenGL 3.3+ support for Skiko rendering.
 
 ---
 
 ## 3. Project Scope Boundaries
 
-### In Scope (Implemented in Phases 1–3)
+### Implemented scope (Phases 1–4)
 * **Phase 1: Tutor UI & Live Visual Overlay Foundation**
   * Collapsible side panel and floating dock (`TutorPanel`, `TutorDock`).
   * Application selector supporting hardcoded mock workflows for **Blender**, **PDF**, and **Excel**.
@@ -47,13 +47,24 @@ This document details the software, hardware, runtime, and architectural require
   * Screenshot preview window (`ScreenshotPreviewWindow`) with temporary file lifecycle management.
   * Global capture hotkey listener (`Ctrl+Alt+F12`).
   * Automated packaging of standalone Windows distributions (.exe / .msi) with bundled native resources.
-* **Phase 3: Universal region context acquisition scaffolding**
+* **Phase 3: Universal region context acquisition**
   * Ctrl+Shift+Space selection shortcut alongside the Phase 2 shortcut.
-  * VisualContext, OCR/classifier interfaces, placeholder processing, and pure selection geometry.
+  * Frozen region selection, application/window context, `VisualContext`, processing lifecycle, and selection geometry.
+  * Basic hotkey-triggered selector rendering exercised in 8 live captures; DPI scaling, multi-monitor behavior, and resilience checklist items remain unverified.
+* **Phase 4: Evidence-oriented perception baseline**
+  * Windows UI Automation and local Tesseract OCR evidence providers behind replaceable interfaces.
+  * Deterministic evidence evaluation with `ACCEPT`, `REFINE`, `ESCALATE`, and `ABSTAIN` decisions.
+  * Synthetic provider/evaluator regression coverage and saved calibration artifacts.
+  * Phase 4 status is `PARTIAL_SIGNAL_UIA_OCR_PENDING_GROUND_TRUTH`; the 18 calibration labels are still pending, so correctness is not yet reportable.
+  * Visual grounding is `NOT_CONFIGURED`. A CPU feasibility attempt was blocked by runtime/memory constraints; the local Vulkan/GPU smoke run failed with a driver/runtime error. No third model stack is configured.
 
-### Out of Scope (Phase 4 & Future Work)
-* **No AI / LLM / VLM:** Instruction generation is not dynamic; steps are mock data from `MockTutorData.kt`.
-* **No production OCR / Text Recognition:** Phase 3 defines an OCR interface, but the default service is a placeholder and extracts no screen text.
-* **No Computer Vision / Object Detection:** Coordinates are pre-defined or user-selected, not inferred from image recognition.
+### Out of scope and not yet validated
+* **No dynamic instruction generation or LLM-based tutoring:** steps are mock data from `MockTutorData.kt`.
+* **No configured VLM/visual-grounding provider:** the contract exists, but visual grounding remains `NOT_CONFIGURED`.
+* **No measured real-target correctness:** UIA/OCR have been exercised on saved/live captures, but UIA intersection does not prove the intended target was identified. Human-confirmed labels are required before reporting correctness.
+* **No verified cross-provider geometry fusion:** OCR crop-pixel bounds and UIA desktop bounds are not compared without a verified coordinate transform.
+* **No Computer Vision / Object Detection:** coordinates are user-selected; visual object detection is not configured.
 * **No Real-Time Action Verification:** The application does not monitor user actions to confirm task completion.
 * **No Continuous Video Streaming:** Screen frames are acquired only on-demand when explicitly triggered.
+
+See [`PHASE_0.md`](PHASE_0.md) for the proposed research direction, [`PHASE_1.md`](PHASE_1.md) through [`PHASE_4.md`](PHASE_4.md) for phase-specific implementation/status, and [`PHASE_3.md`](PHASE_3.md) for the desktop verification checklist.

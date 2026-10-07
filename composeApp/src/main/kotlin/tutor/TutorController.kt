@@ -47,6 +47,12 @@ class TutorController {
     val currentStep: TutorStep
         get() = stepsForCurrentApp()[state.currentStepIndex]
 
+    /** Natural-language instruction for the active mock step, when supplied. */
+    val currentTargetDescription: String?
+        get() = targetDescriptionForStep(currentStep)
+
+    fun targetDescriptionForStep(step: TutorStep): String? = step.instruction.takeIf(String::isNotBlank)
+
     fun selectApplication(application: ApplicationType) {
         if (application == state.selectedApplication) return
         val firstStep = MockTutorData.stepsFor(application).first()

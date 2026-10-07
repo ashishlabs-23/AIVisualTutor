@@ -1,0 +1,19 @@
+caseId	category	targetDescription	x	y	w	h	processHint	instructionFlag
+C01	native_uia_excel_cell	Select cell B2.	860	250	90	28	EXCEL	MOCK_EXCEL_STEP1
+C02	native_uia_excel_ribbon	Enter a value.	820	120	100	30	EXCEL	MOCK_EXCEL_STEP2_FLAGGED_RIBBON_NOT_CELL
+C03	native_uia_calculator	Press Enter.	1100	780	80	50	ApplicationFrameHost:Calculator	NO_MOCK_MATCH_AD_HOC_FLAGGED_calc_equals_as_Enter
+C04	text_ocr_notepad	Read the highlighted text.	60	140	500	120	Notepad	MOCK_PDF_STEP2_FLAGGED_NOTEPAD_NOT_PDF
+C05	text_ocr_notepad_header	Locate the target section.	60	100	500	50	Notepad	MOCK_PDF_STEP1_FLAGGED_NOTEPAD_NOT_PDF
+C06	icon_paint_toolbar	Open the Add menu.	80	600	48	48	mspaint	MOCK_BLENDER_STEP1_FLAGGED_PAINT_TOOL_NOT_ADD_MENU
+C07	custom_render_paint_canvas	Move to the viewport.	200	700	300	200	mspaint	MOCK_BLENDER_STEP4_FLAGGED_PAINT_PROXY_BLENDER_UNAVAILABLE
+C08	no_structure_paint_canvas	Confirm the object.	520	720	200	150	mspaint	MOCK_BLENDER_STEP5_FLAGGED_PAINT_PROXY_BLENDER_UNAVAILABLE
+C09	uia_explorer_item	Locate the relevant table.	1450	280	300	80	explorer:File Explorer	MOCK_PDF_STEP3_FLAGGED_EXPLORER_NOT_TABLE
+C10	native_uia_notepad_menu	Open the Add menu.	40	70	50	28	Notepad	MOCK_BLENDER_STEP1_FLAGGED_NOTEPAD_FILE_MENU_REGION
+C11	conflict_excel_vs_ocr	Select Mesh.	860	250	120	40	EXCEL	MOCK_BLENDER_STEP2_FLAGGED_INTENTIONAL_MISMATCH_TARGET
+C12	conflict_notepad_menu_vs_body	Select Cube.	40	70	600	200	Notepad	MOCK_BLENDER_STEP3_FLAGGED_WIDE_REGION_MENU_PLUS_BODY
+C13	native_uia_excel_formula	Enter a value.	900	160	200	28	EXCEL	MOCK_EXCEL_STEP2
+C14	text_ocr_dense_notepad	Locate the target section.	60	120	550	200	Notepad	MOCK_PDF_STEP1
+C15	icon_calc_button	Press Enter.	1050	700	70	50	ApplicationFrameHost:Calculator	NO_MOCK_MATCH_AD_HOC_FLAGGED
+C16	no_access_desktop_empty	Move to the next page.	1500	400	200	150	explorer:File Explorer	MOCK_PDF_STEP4_FLAGGED_EXPLORER_EMPTY_REGION
+C17	native_uia_excel_title	Select the resulting cell.	780	45	200	28	EXCEL	MOCK_EXCEL_STEP4_FLAGGED_TITLEBAR_NOT_CELL
+C18	custom_render_unavailable_blender	Move to the viewport.	200	700	300	200	mspaint	BLENDER_UNAVAILABLE_PAINT_PROXY_FLAGGED

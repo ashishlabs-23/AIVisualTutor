@@ -1,0 +1,12 @@
+﻿TRACK_A_SMOKE_FAILURE
+timestamp: 2026-10-07
+path: llama-mtmd-cli (winget ggml.llamacpp b11433 win-vulkan-x64) + bartowski/Qwen2-VL-2B-Instruct Q4_K_M + mmproj-f16
+reason_models_retrieved: YES — both GGUF files present on disk (Q4_K_M=986047232 bytes, mmproj-f16=1331656192 bytes)
+showui_gguf_mmproj: ABSENT on localattention/ShowUI-2B-Q4_K_M-GGUF (language GGUF only); used documented Qwen2-VL-2B base GGUF+mmproj instead
+exact_failure: after model load and mtmd image batch encode (~581 ms), runtime aborted with:
+  ERROR: vkQueueSubmit: Invalid queue [VUID-vkQueueSubmit-queue-parameter]
+context: host has no nvidia-smi; winget package is Vulkan binary; -ngl 0 and --no-mmproj-offload were set but Vulkan queue submit still occurred
+peak_ws_GiB_observed: 2.381
+wall_ms: 4129
+exit: process ended without clean exit code captured after Vulkan error
+action: STOP Track A per 4-GAP-2 — do not attempt a third runtime stack

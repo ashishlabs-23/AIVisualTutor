@@ -34,7 +34,12 @@ class VisualContextAcquisition(
         return SelectionSession(id, app, (System.nanoTime() - appStarted) / 1_000_000, previousWindow)
     }
 
-    suspend fun process(session: SelectionSession, snapshot: FrozenScreenSnapshot, bounds: Rectangle): CompletedVisualCapture {
+    suspend fun process(
+        session: SelectionSession,
+        snapshot: FrozenScreenSnapshot,
+        bounds: Rectangle,
+        targetDescription: String? = null
+    ): CompletedVisualCapture {
         check(controller.processing(session.regionId)) { "Selection session is no longer active." }
         try {
             val captureStarted = System.nanoTime()
@@ -47,7 +52,10 @@ class VisualContextAcquisition(
                 "monitorCount" to snapshot.monitors.count { !it.desktopBounds.intersection(bounds).isEmpty }.toString(),
                 "scaleFactor" to snapshot.monitors.filter { !it.desktopBounds.intersection(bounds).isEmpty }.maxOf { maxOf(it.scaleX, it.scaleY) }.toString()
             )
-            val visual = processor.process(image, bounds.x, bounds.y, session.applicationContext, session.regionId, metadata)
+            val visual = processor.process(
+                image, bounds.x, bounds.y, session.applicationContext,
+                session.regionId, metadata, bounds, targetDescription
+            )
             check(controller.complete(session.regionId, visual)) { "Selection session ended while processing." }
             return CompletedVisualCapture(image, visual)
         } catch (e: SelectionTooSmallException) {

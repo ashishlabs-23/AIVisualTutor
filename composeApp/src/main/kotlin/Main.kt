@@ -290,12 +290,15 @@ fun main() = application {
                 // The underlying app is visible while the frozen snapshot is cropped/analyzed.
                 isRegionSelectorOpen = false
                 captureStatus = "Region captured; processing visual context..."
+                val targetDescription = controller.currentTargetDescription
                 previewScope.launch {
                     val session = activeSelectionSession
                     val frozenSnapshot = selectorSnapshot
                     try {
                         checkNotNull(session) { "Selection session expired." }
-                        val result = acquisition.process(session, checkNotNull(frozenSnapshot), desktopBounds)
+                        val result = acquisition.process(
+                            session, checkNotNull(frozenSnapshot), desktopBounds, targetDescription
+                        )
                         controller.setHighlight(HighlightRegion(desktopBounds.x.toFloat(), desktopBounds.y.toFloat(), desktopBounds.width.toFloat(), desktopBounds.height.toFloat()))
                         val oldImage = controller.sessionContext.lastVisualContext?.image
                         if (oldImage !== result.image) oldImage?.flush()

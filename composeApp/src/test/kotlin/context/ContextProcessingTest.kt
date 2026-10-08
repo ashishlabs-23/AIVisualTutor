@@ -41,7 +41,8 @@ class ContextProcessingTest {
             ocr = OCRService { ocrEvidence },
             classifier = ContentClassifier { _, _ -> ClassificationResult(ContentType.TEXT, .7f) },
             logger = logger,
-            perceptionEngine = PerceptionEngine { request -> requests += request; perception }
+            perceptionEngine = PerceptionEngine { request -> requests += request; perception },
+            calibrationResultSink = NoOpCalibrationResultSink
         )
         val acquisition = VisualContextAcquisition(
             RegionSelectionController(logger), ApplicationContextProvider { app },
@@ -71,7 +72,12 @@ class ContextProcessingTest {
     @Test fun ocrAndUiaEvidenceCoexistAndProviderMetadataIsRetained() = runBlocking {
         val ocr = OcrResult("Save", .95f, listOf(OcrWord("Save", .95f, Rectangle(8, 9, 40, 18))), "fixture-ocr", metadata = mapOf("providerId" to "fixture", "totalLatencyMillis" to "3"))
         val uia = PerceptionResult("Editor", "Save", null, UiType.BUTTON, Rectangle(10, 11, 80, 30), .9f, PerceptionSource.UI_AUTOMATION)
-        val result = ContextProcessor(ocr = OCRService { ocr }, perceptionEngine = PerceptionEngine { uia }, logger = RecordingContextLogger())
+        val result = ContextProcessor(
+            ocr = OCRService { ocr },
+            perceptionEngine = PerceptionEngine { uia },
+            logger = RecordingContextLogger(),
+            calibrationResultSink = NoOpCalibrationResultSink
+        )
             .process(BufferedImage(100, 60, BufferedImage.TYPE_INT_RGB), 0, 0, ApplicationContext("Editor", "editor.exe"))
 
         assertSame(ocr, result.ocrResult)
@@ -84,7 +90,11 @@ class ContextProcessingTest {
     @Test fun explicitEmptyPerceptionResultStillCompletesVisualContext() = runBlocking {
         val logger = RecordingContextLogger()
         val empty = PerceptionResult("Unknown app", null, null, UiType.UNKNOWN, null, null, PerceptionSource.UI_AUTOMATION, mapOf("status" to "missing_window_handle"))
-        val processor = ContextProcessor(logger = logger, perceptionEngine = PerceptionEngine { empty })
+        val processor = ContextProcessor(
+            logger = logger,
+            perceptionEngine = PerceptionEngine { empty },
+            calibrationResultSink = NoOpCalibrationResultSink
+        )
         val acquisition = VisualContextAcquisition(
             RegionSelectionController(logger), ApplicationContextProvider { null },
             WgcScreenCaptureService(logger), processor
@@ -97,13 +107,38 @@ class ContextProcessingTest {
         acquisition.reset(session)
     }
 
+    @Test fun missingDesktopSelectionDoesNotQueryUiaOrInventDesktopBounds() = runBlocking {
+        var perceptionCalls = 0
+        val processor = ContextProcessor(
+            ocr = OCRService { OcrResult("visible text", .9f, engineName = "test-ocr") },
+            perceptionEngine = PerceptionEngine { perceptionCalls++; error("UIA must not run without a window context") },
+            logger = RecordingContextLogger(),
+            calibrationResultSink = NoOpCalibrationResultSink
+        )
+
+        val result = processor.process(
+            image = BufferedImage(20, 12, BufferedImage.TYPE_INT_RGB),
+            x = 0,
+            y = 0,
+            app = null,
+            selectedRegion = null,
+            targetDescription = "Find the Save icon"
+        )
+
+        assertEquals(0, perceptionCalls)
+        assertEquals("missing_window_handle", result.perceptionResult?.metadata?.get("status"))
+        assertEquals(EvidenceStatus.UNAVAILABLE, result.evidenceEvaluation?.uiAutomationStatus)
+        assertEquals("visible text", result.extractedText)
+    }
+
     @Test fun unexpectedPerceptionFailureDegradesAndKeepsOcrAndClassification() = runBlocking {
         val logger = RecordingContextLogger()
         val processor = ContextProcessor(
             ocr = OCRService { OcrResult("kept OCR", .91f, engineName = "test-ocr") },
             classifier = ContentClassifier { _, _ -> ClassificationResult(ContentType.TABLE, .73f) },
             logger = logger,
-            perceptionEngine = PerceptionEngine { error("uia adapter failed") }
+            perceptionEngine = PerceptionEngine { error("uia adapter failed") },
+            calibrationResultSink = NoOpCalibrationResultSink
         )
         val context = processor.process(BufferedImage(12, 12, BufferedImage.TYPE_INT_ARGB), 0, 0, null)
 
@@ -118,7 +153,8 @@ class ContextProcessingTest {
         val logger = RecordingContextLogger()
         val processor = ContextProcessor(
             logger = logger,
-            perceptionEngine = PerceptionEngine { throw kotlinx.coroutines.CancellationException("cancelled") }
+            perceptionEngine = PerceptionEngine { throw kotlinx.coroutines.CancellationException("cancelled") },
+            calibrationResultSink = NoOpCalibrationResultSink
         )
         val controller = RegionSelectionController(logger)
         val acquisition = VisualContextAcquisition(
@@ -136,7 +172,12 @@ class ContextProcessingTest {
         val entered=CompletableDeferred<Unit>(); val release=CompletableDeferred<OcrResult>()
         val ocrThread=AtomicLong(-1)
         val logger=RecordingContextLogger()
-        val processor=ContextProcessor(OCRService { ocrThread.set(Thread.currentThread().id); entered.complete(Unit); release.await() }, ContentClassifier { _,_->ClassificationResult(ContentType.UNKNOWN,.5f) }, logger)
+        val processor=ContextProcessor(
+            OCRService { ocrThread.set(Thread.currentThread().id); entered.complete(Unit); release.await() },
+            ContentClassifier { _,_->ClassificationResult(ContentType.UNKNOWN,.5f) },
+            logger,
+            calibrationResultSink = NoOpCalibrationResultSink
+        )
         val controller=RegionSelectionController(logger)
         val flow=VisualContextAcquisition(controller,ApplicationContextProvider { null },WgcScreenCaptureService(logger),processor)
         val session=assertNotNull(flow.begin()); val callerThread=Thread.currentThread().id
@@ -154,7 +195,12 @@ class ContextProcessingTest {
     }
 
     @Test fun ocrClassifierAndApplicationContextFailuresDegrade() = runBlocking {
-        val processor=ContextProcessor(OCRService { error("ocr unavailable") },ContentClassifier { _,_->error("classifier unavailable") },RecordingContextLogger())
+        val processor=ContextProcessor(
+            OCRService { error("ocr unavailable") },
+            ContentClassifier { _,_->error("classifier unavailable") },
+            RecordingContextLogger(),
+            calibrationResultSink = NoOpCalibrationResultSink
+        )
         val controller=RegionSelectionController(RecordingContextLogger())
         val acquisition=VisualContextAcquisition(controller,ApplicationContextProvider { error("foreground unavailable") },WgcScreenCaptureService(RecordingContextLogger()),processor)
         val session=assertNotNull(acquisition.begin())
@@ -169,7 +215,7 @@ class ContextProcessingTest {
     }
 
     @Test fun contextIdsAreUniqueAndDefaultLoggerDropsSensitiveValues() = runBlocking {
-        val processor=ContextProcessor(logger=RecordingContextLogger())
+        val processor=ContextProcessor(logger=RecordingContextLogger(), calibrationResultSink=NoOpCalibrationResultSink)
         val image=BufferedImage(10,10,BufferedImage.TYPE_INT_ARGB)
         val one=processor.process(image,-1,0,null)
         val two=processor.process(image,-1,0,null)

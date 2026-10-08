@@ -4,8 +4,13 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.Text
 import androidx.compose.runtime.Composable
@@ -31,6 +36,7 @@ import java.io.File
 @Composable
 fun ScreenshotPreviewWindow(
     pngPath: String,
+    evidence: ScreenshotPreviewEvidence,
     onCloseRequest: () -> Unit
 ) {
     val windowState = rememberWindowState(
@@ -95,6 +101,24 @@ fun ScreenshotPreviewWindow(
                             .fillMaxSize()
                             .background(Color(0xFF0F172A), RoundedCornerShape(10.dp))
                     )
+
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .width(360.dp)
+                            .heightIn(max = 320.dp)
+                            .background(Color(0xEE1F2937), RoundedCornerShape(8.dp))
+                            .verticalScroll(rememberScrollState())
+                            .padding(12.dp)
+                    ) {
+                        Text("TARGET", color = Color(0xFF93C5FD))
+                        Text(evidence.targetLabel, color = Color.White)
+                        Text("UIA: ${evidence.uiAutomationStatus}", color = Color.White)
+                        Text("OCR: ${evidence.ocrStatus}", color = Color.White)
+                        Text("VISION: ${evidence.visualGroundingStatus}", color = Color.White)
+                        evidence.visualReason?.let { Text("Reason: $it", color = Color.White) }
+                        Text("DECISION: ${evidence.decision}", color = Color.White)
+                    }
                 }
 
                 else -> {

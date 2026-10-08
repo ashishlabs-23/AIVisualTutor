@@ -1,0 +1,35 @@
+Phase 4 Tess4J/Tesseract native crash investigation
+Date: 2026-10-08
+
+Original failure
+- The first B01 CalibrationHarness run used Gradle 8.9 with Amazon Corretto JDK 22.0.2.
+- The JVM reported: java.lang.Error: Invalid memory access.
+- Native entry point: com.sun.jna.Native.invokeInt -> TessBaseAPIInit1.
+- Java stack: net.sourceforge.tess4j.Tesseract.init(Tesseract.java:362) -> Tesseract.getWords(Tesseract.java:729) -> TesseractOcrService.recognize(TesseractOcrService.kt:47).
+- Failure stage: Tesseract engine initialization, before image conversion/recognition and before word-box extraction.
+- JavaExec exited with -1073741819 (0xC0000005). No hs_err_pid log was found in the searched repository or user Temp paths.
+- The first failed-attempt crop captured unrelated IDE text, and a later JavaExec recapture produced a blank-white crop; foreground state at that latter capture was not recorded. Both failed-attempt files were retained and excluded from B01 correctness scoring.
+
+Controlled reproduction/isolation
+- Exact saved real Blender B01 crop, direct OCR-only on Corretto JDK 22.0.2: 3/3 sequential calls threw the same Error at TessBaseAPIInit1.
+- The same process also made 2/2 concurrent OCR calls, which threw the same Error. Since isolated sequential OCR fails too, concurrency is not required to trigger the failure.
+- Existing known-good OcrFixtures.textOnly image exported unchanged to this run directory also failed at TessBaseAPIInit1 on Corretto JDK 22.0.2. The crash is therefore not specific to Blender or B01 image contents.
+- The production Windows UIA provider completed independently and returned the Blender root element; the OCR exception did not originate from or establish a UIA failure.
+- ContextProcessor on JDK 22 propagated the java.lang.Error; its Exception/LinkageError handling did not contain this failure. Catching Throwable in the diagnostic caller did not make the Java process safe: the child still exited with 0xC0000005.
+- The same B01 crop under Microsoft JDK 17.0.20.1: OCR succeeded in 3/3 sequential calls and 2/2 concurrent calls; ContextProcessor completed with an explicit ABSTAIN decision. The existing TesseractOcrServiceTest fixture suite also passed on the Java 17 toolchain.
+
+Runtime/native artifacts observed
+- Gradle wrapper: 8.9.
+- Crashing JavaExec launcher: Amazon Corretto OpenJDK 22.0.2 (x64).
+- Passing configured Java toolchain: Microsoft OpenJDK 17.0.20.1 (x64).
+- Tess4J: 5.20.0; JNA: 5.19.1; Lept4J: 1.24.0.
+- Loaded native library files observed in the test JVM:
+  C:\Users\PC\AppData\Local\Temp\tess4j\win32-x86-64\libtesseract553.dll (Tesseract 5.5.3; TessVersion returned 5.5.3)
+  C:\Users\PC\AppData\Local\Temp\tess4j\win32-x86-64\libleptonica1870.dll (Leptonica 1.87.0)
+- Gradle resolved a single JNA runtime version, 5.19.1. The same Tess4J/JNA/Lept4J dependency declarations and extracted DLL paths were used for both runtime comparisons.
+
+Conclusion and fix
+- Reproduced runtime-specific failure: this setup fails on the JavaExec path launched by Corretto JDK 22.0.2 and passes on the repository's Java 17 toolchain. Because the available JDKs differ in both version and vendor, this does not isolate a universal JDK-version-only or vendor-only defect. The precise lower-level JNA/native ABI mechanism is unresolved.
+- All composeApp JavaExec tasks, including CalibrationHarness, are now pinned to Java 17 through Gradle's toolchain API, matching the project's configured JVM toolchain. Verification with Gradle itself running on JDK 22 showed that the harness child process launched C:\Users\PC\.jdks\ms-17.0.20.1\bin\java.exe.
+- Tess4J/Tesseract versions were not changed. No OCR Error catch was added: the observed native access violation remains process-fatal even when the diagnostic caller catches Throwable, so an in-process catch would not be safe containment.
+- Limitation: the reproduced JDK 22 runtime combination remains unsupported for the current native OCR call unless separately isolated in a child process or its underlying JNA/native compatibility is fixed. All configured JavaExec application/harness tasks in this module now use the tested Java 17 toolchain.

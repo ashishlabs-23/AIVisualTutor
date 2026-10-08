@@ -27,13 +27,14 @@ class TesseractOcrService(
         coroutineContext.ensureActive()
         val totalStarted = System.nanoTime()
         var initializationMillis = 0L
+        var tesseractVersion: String? = null
         try {
             require(image.width > 0 && image.height > 0) { "empty_image" }
             require(languages.isNotEmpty()) { "no_ocr_language_configured" }
 
             val initializeStarted = System.nanoTime()
             val dataRoot = tessdataRoot ?: EmbeddedTessdata.rootFor(languages)
-            TessAPI.INSTANCE.TessVersion() // forces native-library loading before recognition timing
+            tesseractVersion = TessAPI.INSTANCE.TessVersion().toString()
             initializationMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - initializeStarted)
 
             coroutineContext.ensureActive()
@@ -67,7 +68,11 @@ class TesseractOcrService(
                 "evidenceType" to "OCR_TEXT",
                 "availability" to "available",
                 "status" to if (words.isEmpty()) "empty" else "recognized"
-            )
+            ) + if (System.getProperty(CalibrationResultStore.ENABLE_PROPERTY)?.equals("true", ignoreCase = true) == true) {
+                mapOf("tesseractVersion" to tesseractVersion.orEmpty())
+            } else {
+                emptyMap()
+            }
             OcrResult(
                 text = words.joinToString(" ") { it.text },
                 confidence = words.mapNotNull { it.confidence }.takeIf { it.isNotEmpty() }?.average()?.toFloat(),

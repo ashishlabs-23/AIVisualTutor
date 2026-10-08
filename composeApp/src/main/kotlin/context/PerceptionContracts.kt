@@ -49,8 +49,14 @@ data class VisualGroundingRequest(
 )
 
 enum class VisualGroundingCoordinateSpace { CROP_IMAGE_PIXELS, NORMALIZED_CROP }
-enum class GroundingProviderAvailability { AVAILABLE, UNAVAILABLE, NOT_CONFIGURED, FAILURE, CANCELLED }
+enum class GroundingProviderAvailability { AVAILABLE, UNAVAILABLE, NOT_CONFIGURED, HOST_BLOCKED, FAILURE, CANCELLED }
 enum class GroundingExecutionLocation { LOCAL, REMOTE, UNKNOWN }
+
+data class VisualGroundingPreflight(
+    val availability: GroundingProviderAvailability,
+    val diagnostic: String? = null,
+    val metadata: Map<String, String> = emptyMap()
+)
 
 /** Semantic identity and its confidence are independent from any geometric prediction. */
 data class GroundingSemanticEvidence(
@@ -93,6 +99,12 @@ fun interface VisualGroundingProvider {
 
     val availabilityDiagnostic: String?
         get() = null
+
+    fun preflight(): VisualGroundingPreflight = VisualGroundingPreflight(
+        availability = availability,
+        diagnostic = availabilityDiagnostic,
+        metadata = mapOf("provider" to providerId)
+    )
 
     suspend fun ground(request: VisualGroundingRequest): VisualGroundingResult
 }

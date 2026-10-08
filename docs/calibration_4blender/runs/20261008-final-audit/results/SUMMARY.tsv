@@ -1,0 +1,2 @@
+caseId	category	decision	reason	uiaStatus	ocrStatus	instructionFlag	groundTruth
+B01	blender_structured_text	ABSTAIN	visual_provider_not_configured	AVAILABLE	AVAILABLE	BLENDER_B01_FINAL_AUDIT_RERUN	Cube_object_label_in_Blender_Outliner

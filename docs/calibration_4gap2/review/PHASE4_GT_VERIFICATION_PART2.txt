@@ -1,0 +1,576 @@
+
+---
+
+## CASE: C09
+*** SPECIAL CASE -- CATEGORY DISCREPANCY ***
+
+CASE_RECORD:
+  caseId=C09 / category=uia_explorer_item
+  targetDescription=Locate the relevant table.
+  instructionFlag=MOCK_PDF_STEP3_FLAGGED_EXPLORER_NOT_TABLE
+  region=1450,280,300,80
+  appProcess=explorer / appTitle=Desktop - File Explorer / appHwnd=1902256
+  decision=ABSTAIN / reason=visual_provider_not_configured
+  uiaStatus=FAILURE / ocrStatus=AVAILABLE
+  ocrText=news X% 0 GF OD S Une 1 Name / ocrConfidence=0.27962124 / ocrWordCount=9
+  perceptionMillis=570 / groundTruthLabel=PENDING_LABEL
+
+IMAGE_EXISTS: YES
+PNG_DIMENSIONS: 300 x 80
+TARGET_DESCRIPTION (result file): Locate the relevant table.
+TARGET_DESCRIPTION (PHASE_4.md audit): Select the visible New control in the File Explorer toolbar.
+CATEGORY: uia_explorer_item (CONFLICTS with visible content -- see discrepancy note)
+APPLICATION: File Explorer / RECORDED_REGION: 1450,280,300,80
+
+HUMAN VISUAL EVIDENCE:
+  219 unique colors -- rich variety indicating complex UI.
+  19401px white (255,255,255), 2402px (248,248,248), 601px gray (214,214,214), 400px (240,240,240).
+  58px light blue (163,206,239) -- File Explorer hover/selected highlight.
+  34px lighter blue (171,231,255). 33px light yellow (255,255,213) -- possible folder icons.
+  31px purple-ish (141,96,145) -- app icon color.
+  77 dark pixels at y=30..78, x=1..277 -- text characters.
+  307 blue-dominant pixels. Gray bands suggest toolbar separators.
+  What is visible: File Explorer toolbar area (horizontal strip 300x80).
+    Blue highlights suggest highlighted button (New?). Dark pixels = small text labels.
+    No list item, no table visible.
+  CATEGORY_DISCREPANCY: category=uia_explorer_item but no list item is visible.
+    PHASE_4.md audit explicitly states: no list item visible in C09.
+    Category is NOT changed per instructions.
+  Is target visible: NO for Locate the relevant table (no table present).
+    UNCLEAR for New control (blue-highlighted area present but label not unambiguously readable).
+
+SYSTEM EVIDENCE:
+  DECISION: ABSTAIN / OCR_TEXT: news X% 0 GF OD S Une 1 Name
+  OCR_CONFIDENCE: 0.27962124 (very low) / PERCEPTION_MILLIS: 570
+
+C09_CATEGORY_CONFLICT: uia_explorer_item vs actual File Explorer toolbar (no list item visible).
+DISCREPANCY_NOTE: Category conflicts with visible content. Audit corrected description but not category.
+
+GROUND-TRUTH PROPOSAL:
+  TARGET_VISIBILITY: UNCLEAR
+  PROPOSED_GROUND_TRUTH_LABEL: New_control_File_Explorer_toolbar
+    (based on audit description; individual button identity not unambiguously confirmable from pixel data)
+  PROPOSED_GROUND_TRUTH_MATCH: NOT_SCORABLE
+  MATCH_REASON: ABSTAIN. Original target (Locate the relevant table) definitively wrong -- no table.
+    Audit target (New control) plausible but not confirmable from pixel data alone.
+    Rule for ABSTAIN vs valid target not defined.
+  SCORING_RULE_STATUS: NOT_DEFINED
+
+GROUND_TRUTH_CONFIRMED: NO / RECORD_MODIFIED: NO / STOP_BEFORE_WRITE: YES
+
+---
+
+## CASE: C10
+
+CASE_RECORD:
+  caseId=C10 / category=native_uia_notepad_menu
+  targetDescription=Open the Add menu.
+  instructionFlag=MOCK_BLENDER_STEP1_FLAGGED_NOTEPAD_FILE_MENU_REGION
+  region=40,70,50,28
+  appProcess=Notepad / appHwnd=264134
+  decision=ABSTAIN / reason=visual_provider_not_configured
+  uiaStatus=FAILURE / ocrStatus=INSUFFICIENT
+  ocrText=(empty) / ocrConfidence=null / ocrWordCount=0 / perceptionMillis=371
+  groundTruthLabel=PENDING_LABEL
+
+IMAGE_EXISTS: YES
+PNG_DIMENSIONS: 50 x 28
+TARGET_DESCRIPTION (result file): Open the Add menu.
+TARGET_DESCRIPTION (PHASE_4.md audit): Select the File menu in Notepad.
+CATEGORY: native_uia_notepad_menu / APPLICATION: Notepad / RECORDED_REGION: 40,70,50,28
+
+HUMAN VISUAL EVIDENCE:
+  Dominant: RGB(248,248,248)=768px, RGB(232,232,232)=555px -- near-white and light gray (Notepad menu bar).
+  12px gray (146,146,146) -- border/hover state.
+  9px orange-brown (152,75,10) -- likely F of File text.
+  7px very dark (26,26,26) -- text glyphs.
+  24 blue-ish pixels. Total 1400 pixels (50x28 = very small crop).
+  What is visible: Tiny Notepad menu bar crop. Colors match menu bar appearance.
+    7 dark pixels = text. Orange pixel likely = F in File text.
+    OCR returned INSUFFICIENT -- crop too small for OCR.
+  Is target visible: PARTIAL (menu bar area visible, File menu likely present but not unambiguous at this size).
+  No Add menu in Notepad.
+
+SYSTEM EVIDENCE:
+  DECISION: ABSTAIN / OCR_STATUS: INSUFFICIENT / OCR_TEXT: (empty)
+  PERCEPTION_MILLIS: 371
+
+GROUND-TRUTH PROPOSAL:
+  TARGET_VISIBILITY: UNCLEAR
+  PROPOSED_GROUND_TRUTH_LABEL: File_menu_Notepad
+  PROPOSED_GROUND_TRUTH_MATCH: NOT_SCORABLE
+  MATCH_REASON: ABSTAIN. Original target Open the Add menu not in Notepad.
+    Crop is 50x28 -- very small, OCR INSUFFICIENT, file menu text not unambiguously verifiable from pixels.
+  SCORING_RULE_STATUS: NOT_DEFINED
+
+GROUND_TRUTH_CONFIRMED: NO / RECORD_MODIFIED: NO / STOP_BEFORE_WRITE: YES
+
+---
+
+## CASE: C11
+
+CASE_RECORD:
+  caseId=C11 / category=conflict_excel_vs_ocr
+  targetDescription=Select Mesh.
+  instructionFlag=MOCK_BLENDER_STEP2_FLAGGED_INTENTIONAL_MISMATCH_TARGET
+  region=860,250,120,40
+  appProcess=EXCEL / appHwnd=394800
+  decision=ABSTAIN / reason=visual_provider_not_configured
+  uiaStatus=FAILURE / ocrStatus=AVAILABLE
+  ocrText=eS / ocrConfidence=0.4345334 / ocrWordCount=1
+  perceptionMillis=457 / groundTruthLabel=PENDING_LABEL
+
+IMAGE_EXISTS: YES
+PNG_DIMENSIONS: 120 x 40
+TARGET_DESCRIPTION (result file): Select Mesh.
+TARGET_DESCRIPTION (PHASE_4.md audit): Select the green Excel cell showing visible text ending in covered Files.
+CATEGORY: conflict_excel_vs_ocr / APPLICATION: EXCEL / RECORDED_REGION: 860,250,120,40
+
+HUMAN VISUAL EVIDENCE:
+  Dominant: RGB(33,115,70) = 4487/4800px (93.5%) -- solid Excel green.
+  119 white pixels (255,255,255) -- small white area (cell border or white text).
+  39px light green (238,245,241). 9 unique colors. 0 dark text pixels.
+  What is visible: 120x40 Excel green cell. Small white area likely = cell border or text.
+    OCR read eS -- partial white text on green background.
+    Audit says text ending in covered Files -- not confirmable from pixel data alone.
+  Select Mesh is Blender concept -- not present in Excel.
+  Is target visible: PARTIAL (green Excel cell visible; text not clearly readable).
+
+SYSTEM EVIDENCE:
+  DECISION: ABSTAIN / OCR_TEXT: eS / OCR_CONFIDENCE: 0.4345334
+  PERCEPTION_MILLIS: 457
+
+GROUND-TRUTH PROPOSAL:
+  TARGET_VISIBILITY: UNCLEAR
+  PROPOSED_GROUND_TRUTH_LABEL: green_Excel_cell_with_text_ending_in_covered_Files
+  PROPOSED_GROUND_TRUTH_MATCH: NOT_SCORABLE
+  MATCH_REASON: ABSTAIN. Select Mesh is Blender concept not in Excel.
+    Audit target text not fully verifiable from pixel data. Rule for ABSTAIN vs target not defined.
+  SCORING_RULE_STATUS: NOT_DEFINED
+
+GROUND_TRUTH_CONFIRMED: NO / RECORD_MODIFIED: NO / STOP_BEFORE_WRITE: YES
+
+---
+
+## CASE: C12
+
+CASE_RECORD:
+  caseId=C12 / category=conflict_notepad_menu_vs_body
+  targetDescription=Select Cube.
+  instructionFlag=MOCK_BLENDER_STEP3_FLAGGED_WIDE_REGION_MENU_PLUS_BODY
+  region=40,70,600,200
+  appProcess=Notepad / appHwnd=264134
+  decision=ABSTAIN / reason=visual_provider_not_configured
+  uiaStatus=FAILURE / ocrStatus=AVAILABLE
+  ocrText=File Edit View Hy =y BIS @ - ve of CALIBRATION SECTION HEADER Read this highlighted paragraph about calibration evidence for OCR targets.
+  ocrConfidence=0.7880245 / ocrWordCount=23 / perceptionMillis=462
+  groundTruthLabel=PENDING_LABEL
+  NOTE: C05 (500x50) and C04 (500x120) are pixel-perfect sub-regions of this C12 crop.
+
+IMAGE_EXISTS: YES
+PNG_DIMENSIONS: 600 x 200
+TARGET_DESCRIPTION (result file): Select Cube.
+TARGET_DESCRIPTION (PHASE_4.md audit): Select the File menu in Notepad.
+CATEGORY: conflict_notepad_menu_vs_body / APPLICATION: Notepad / RECORDED_REGION: 40,70,600,200
+
+HUMAN VISUAL EVIDENCE:
+  Dominant: RGB(249,249,249)=89208px, (248,248,248)=18198px -- near-white Notepad.
+  7033px RGB(232,232,232) -- Notepad menu bar background (darker gray).
+  550 black pixels (0,0,0) -- text.
+  1213 blue-dominant pixels -- colored text. 8006 mid-gray.
+  What is visible: Large Notepad crop showing:
+    (1) Menu bar at top: File Edit View menu items (gray background, black text).
+    (2) CALIBRATION SECTION HEADER heading.
+    (3) Highlighted paragraph about calibration evidence.
+  OCR confirms: File Edit View ... CALIBRATION SECTION HEADER Read this highlighted paragraph.
+  Select Cube is Blender concept -- not in Notepad.
+  File menu is clearly visible in the menu bar.
+
+SYSTEM EVIDENCE:
+  DECISION: ABSTAIN / OCR_TEXT: File Edit View ... CALIBRATION SECTION HEADER ...
+  OCR_CONFIDENCE: 0.7880245 / PERCEPTION_MILLIS: 462
+
+GROUND-TRUTH PROPOSAL:
+  TARGET_VISIBILITY: CLEAR
+  PROPOSED_GROUND_TRUTH_LABEL: File_menu_Notepad
+  PROPOSED_GROUND_TRUTH_MATCH: NOT_SCORABLE
+  MATCH_REASON: ABSTAIN. Select Cube is Blender concept not in Notepad.
+    Audit target (File menu) clearly visible. Rule for ABSTAIN vs valid target not defined.
+  SCORING_RULE_STATUS: NOT_DEFINED
+
+GROUND_TRUTH_CONFIRMED: NO / RECORD_MODIFIED: NO / STOP_BEFORE_WRITE: YES
+
+---
+
+## CASE: C13
+*** UNUSABLE IMAGE -- BYTE-IDENTICAL TO C17 ***
+
+CASE_RECORD:
+  caseId=C13 / category=native_uia_excel_formula
+  targetDescription=Enter a value.
+  instructionFlag=MOCK_EXCEL_STEP2
+  region=900,160,200,28
+  appProcess=EXCEL / appHwnd=394800
+  decision=ABSTAIN / reason=visual_provider_not_configured
+  uiaStatus=FAILURE / ocrStatus=INSUFFICIENT
+  ocrText=(empty) / ocrConfidence=null / ocrWordCount=0 / perceptionMillis=608
+  groundTruthLabel=PENDING_LABEL
+  NOTE: C13 and C17 are BYTE-IDENTICAL (same 160-byte PNG). Single-color solid green.
+
+IMAGE_EXISTS: YES
+PNG_DIMENSIONS: 200 x 28
+TARGET_DESCRIPTION (result file): Enter a value.
+TARGET_DESCRIPTION (PHASE_4.md audit): Enter a value. (not changed in audit)
+CATEGORY: native_uia_excel_formula / APPLICATION: EXCEL / RECORDED_REGION: 900,160,200,28
+
+HUMAN VISUAL EVIDENCE:
+  1 unique color: RGB(33,115,70) across ALL 5600 pixels. 100% Excel green.
+  0 white, 0 dark, 0 text pixels.
+  What is visible: Solid Excel green rectangle. No text, no UI controls, nothing.
+    This is the Excel ribbon band captured at a region that contains only the solid green ribbon color.
+    No formula bar, no cell, no Enter-value interface visible.
+  Is target visible: NO. Crop is uninformative -- solid color only.
+  Is image usable: UNUSABLE for target identification.
+
+SYSTEM EVIDENCE:
+  DECISION: ABSTAIN / OCR_STATUS: INSUFFICIENT / OCR_TEXT: (empty)
+  PERCEPTION_MILLIS: 608
+
+GROUND-TRUTH PROPOSAL:
+  TARGET_VISIBILITY: ABSENT
+  PROPOSED_GROUND_TRUTH_LABEL: NO_VALID_TARGET
+  PROPOSED_GROUND_TRUTH_MATCH: NOT_SCORABLE
+  MATCH_REASON: Image is solid single-color green -- no UI content at all.
+    Ground truth cannot be established from this crop. NOT_SCORABLE.
+  SCORING_RULE_STATUS: NOT_DEFINED
+
+GROUND_TRUTH_CONFIRMED: NO / RECORD_MODIFIED: NO / STOP_BEFORE_WRITE: YES
+
+---
+
+## CASE: C14
+
+CASE_RECORD:
+  caseId=C14 / category=text_ocr_dense_notepad
+  targetDescription=Locate the target section.
+  instructionFlag=MOCK_PDF_STEP1
+  region=60,120,550,200
+  appProcess=Notepad / appHwnd=264134
+  decision=ABSTAIN / reason=visual_provider_not_configured
+  uiaStatus=FAILURE / ocrStatus=AVAILABLE
+  ocrText=LIBRATION SECTION HEADER ad this highlighted paragraph about calibration evidence for OCR targ
+  ocrConfidence=0.94039685 / ocrWordCount=13 / perceptionMillis=373
+  groundTruthLabel=PENDING_LABEL
+  NOTE: C14 contains C04 (500x120) as pixel-perfect sub-region at y=20..140.
+
+IMAGE_EXISTS: YES
+PNG_DIMENSIONS: 550 x 200
+TARGET_DESCRIPTION (result file): Locate the target section.
+TARGET_DESCRIPTION (PHASE_4.md audit): Locate the target section. (not changed in audit)
+CATEGORY: text_ocr_dense_notepad / APPLICATION: Notepad / RECORDED_REGION: 60,120,550,200
+
+HUMAN VISUAL EVIDENCE:
+  Dominant: RGB(249,249,249)=106521/110000px (96.8%) -- near-white Notepad.
+  499 black pixels (text). 254px blue (0,51,138), 253px teal (213,249,249), 252px orange -- highlights.
+  1083 blue-dominant pixels.
+  What is visible: Large Notepad crop (550x200) showing:
+    (1) CALIBRATION SECTION HEADER heading.
+    (2) Highlighted paragraph text below.
+  OCR confidence 0.94 (high) confirms text: CALIBRATION SECTION HEADER + highlighted paragraph.
+  Is target visible: YES -- section header and paragraph clearly visible.
+
+SYSTEM EVIDENCE:
+  DECISION: ABSTAIN / OCR_TEXT: LIBRATION SECTION HEADER ... highlighted paragraph
+  OCR_CONFIDENCE: 0.94039685 (high) / PERCEPTION_MILLIS: 373
+
+GROUND-TRUTH PROPOSAL:
+  TARGET_VISIBILITY: CLEAR
+  PROPOSED_GROUND_TRUTH_LABEL: CALIBRATION_SECTION_with_header_and_highlighted_paragraph
+  PROPOSED_GROUND_TRUTH_MATCH: NOT_SCORABLE
+  MATCH_REASON: ABSTAIN. Section header and paragraph clearly visible. Rule not defined.
+  SCORING_RULE_STATUS: NOT_DEFINED
+
+GROUND_TRUTH_CONFIRMED: NO / RECORD_MODIFIED: NO / STOP_BEFORE_WRITE: YES
+
+---
+
+## CASE: C15
+*** POSSIBLE MIS-CAPTURE: EXCEL GREEN IN CALCULATOR CROP ***
+
+CASE_RECORD:
+  caseId=C15 / category=icon_calc_button
+  targetDescription=Press Enter.
+  instructionFlag=NO_MOCK_MATCH_AD_HOC_FLAGGED
+  region=1050,700,70,50
+  appProcess=ApplicationFrameHost / appTitle=Calculator / appHwnd=526012
+  decision=ABSTAIN / reason=visual_provider_not_configured
+  uiaStatus=FAILURE / ocrStatus=INSUFFICIENT
+  ocrText=(empty) / ocrConfidence=null / ocrWordCount=0 / perceptionMillis=352
+  groundTruthLabel=PENDING_LABEL
+
+IMAGE_EXISTS: YES
+PNG_DIMENSIONS: 70 x 50
+TARGET_DESCRIPTION (result file): Press Enter.
+TARGET_DESCRIPTION (PHASE_4.md audit): Select the visible MR button in Calculator.
+CATEGORY: icon_calc_button / APPLICATION: Calculator (ApplicationFrameHost) / RECORDED_REGION: 1050,700,70,50
+
+HUMAN VISUAL EVIDENCE:
+  2730/3500 pixels (78%) are RGB(33,115,70) -- Excel green. NOT a Calculator color.
+  180px RGB(236,246,238), 142px (237,245,238) -- very light green (Calculator button hover variants).
+  0 dark text pixels. 0 white pixels.
+  What is visible: Crop is dominated by Excel green (78%), identical color to Excel ribbon/ribbon bar.
+    Windows Calculator buttons have near-white background (as seen in C03: 87.8% near-white).
+    This crop does NOT look like a Calculator button.
+  DATA INTEGRITY ISSUE: Recorded appTitle=Calculator but pixel data matches Excel green region.
+    Possible mis-capture: Excel window may have been captured instead of Calculator.
+  Is target visible: NO -- no Calculator button visible. Crop shows Excel green.
+
+SYSTEM EVIDENCE:
+  DECISION: ABSTAIN / OCR_STATUS: INSUFFICIENT / OCR_TEXT: (empty)
+  PERCEPTION_MILLIS: 352
+
+GROUND-TRUTH PROPOSAL:
+  TARGET_VISIBILITY: ABSENT
+  PROPOSED_GROUND_TRUTH_LABEL: NO_VALID_TARGET
+  PROPOSED_GROUND_TRUTH_MATCH: NOT_SCORABLE
+  MATCH_REASON: PNG does not contain the expected Calculator button.
+    78% Excel green is inconsistent with Calculator UI.
+    Ground truth cannot be established -- crop may be a mis-capture.
+    NOT_SCORABLE.
+  SCORING_RULE_STATUS: NOT_DEFINED
+  ADDITIONAL_NOTE: C15 pixel data (78% Excel green) is inconsistent with recorded appTitle=Calculator.
+    This is a DATA INTEGRITY ISSUE requiring human review.
+
+GROUND_TRUTH_CONFIRMED: NO / RECORD_MODIFIED: NO / STOP_BEFORE_WRITE: YES
+
+---
+
+## CASE: C16
+*** SPECIAL CASE -- CATEGORY DISCREPANCY ***
+
+CASE_RECORD:
+  caseId=C16 / category=no_access_desktop_empty
+  targetDescription=Move to the next page.
+  instructionFlag=MOCK_PDF_STEP4_FLAGGED_EXPLORER_EMPTY_REGION
+  region=1500,400,200,150
+  appProcess=explorer / appTitle=Desktop - File Explorer / appHwnd=1902256
+  decision=ABSTAIN / reason=visual_provider_not_configured
+  uiaStatus=FAILURE / ocrStatus=AVAILABLE
+  ocrText=EE BTCognitive Pa Chapter Exercise 2 deme Sa bccerpt ade Sa Forsightcs oo New falder
+  ocrConfidence=0.34932208 / ocrWordCount=18 / perceptionMillis=422
+  groundTruthLabel=PENDING_LABEL
+
+IMAGE_EXISTS: YES
+PNG_DIMENSIONS: 200 x 150
+TARGET_DESCRIPTION (result file): Move to the next page.
+TARGET_DESCRIPTION (PHASE_4.md audit): Select the visible demo folder in File Explorer.
+CATEGORY: no_access_desktop_empty (CONFLICTS with visible content -- see discrepancy note)
+APPLICATION: File Explorer / RECORDED_REGION: 1500,400,200,150
+
+HUMAN VISUAL EVIDENCE:
+  24075px white (255,255,255) (80.9%), 2158px gray (240,240,240).
+  303px RGB(255,255,182) -- light yellow (folder icon color).
+  272px RGB(144,219,255) -- light blue (hover/selection highlight).
+  247px RGB(102,0,58) -- dark purple-red (folder icon accent).
+  518 yellow-folder-like pixels (R>200, G>150, B<100).
+  562 light-blue pixels. 307 dark pixels (y=3..148, x=0..190) -- text labels.
+  Top colors also include: 255,219,144 = amber-yellow (folder icon), 182,255,255 = light teal, 
+    102,182,255 = blue, 58,144,219 = darker blue, 133,133,133 = gray.
+  What is visible: File Explorer showing folder icons with labels. NOT empty.
+    Yellow folder icons. Blue hover highlights. Dark text = folder names.
+    OCR (low confidence) captures partial folder names: Cognitive, Chapter, Exercise 2, deme, Forsight, New falder.
+    deme likely = partial read of demo folder name.
+  CATEGORY_DISCREPANCY: category=no_access_desktop_empty but image CLEARLY shows folder content.
+    PHASE_4.md audit explicitly notes: C16 visibly contains folders despite no_access_desktop_empty category.
+    Category is NOT changed per instructions.
+  Move to the next page: no navigation button visible. This is File Explorer file list.
+
+SYSTEM EVIDENCE:
+  DECISION: ABSTAIN / OCR_TEXT: EE BTCognitive Pa Chapter Exercise 2 deme ...
+  OCR_CONFIDENCE: 0.34932208 (low) / PERCEPTION_MILLIS: 422
+
+C16_CATEGORY_CONFLICT: no_access_desktop_empty vs actual File Explorer showing folders (NOT empty).
+
+GROUND-TRUTH PROPOSAL:
+  TARGET_VISIBILITY: UNCLEAR
+  PROPOSED_GROUND_TRUTH_LABEL: demo_folder_in_File_Explorer
+  (OCR reads deme which likely = demo; folder icons visible but specific folder name not unambiguously confirmable from pixel data alone)
+  PROPOSED_GROUND_TRUTH_MATCH: NOT_SCORABLE
+  MATCH_REASON: ABSTAIN. Category (no_access_desktop_empty) is WRONG -- image contains folders.
+    Original target (Move to the next page) not present. Audit target (demo folder) plausible but not 
+    unambiguously confirmable. Rule for ABSTAIN vs visible target not defined.
+  SCORING_RULE_STATUS: NOT_DEFINED
+
+GROUND_TRUTH_CONFIRMED: NO / RECORD_MODIFIED: NO / STOP_BEFORE_WRITE: YES
+
+---
+
+## CASE: C17
+*** UNUSABLE IMAGE -- BYTE-IDENTICAL TO C13 ***
+
+CASE_RECORD:
+  caseId=C17 / category=native_uia_excel_title
+  targetDescription=Select the resulting cell.
+  instructionFlag=MOCK_EXCEL_STEP4_FLAGGED_TITLEBAR_NOT_CELL
+  region=780,45,200,28
+  appProcess=EXCEL / appHwnd=394800
+  decision=ABSTAIN / reason=visual_provider_not_configured
+  uiaStatus=FAILURE / ocrStatus=INSUFFICIENT
+  ocrText=(empty) / ocrConfidence=null / ocrWordCount=0 / perceptionMillis=432
+  groundTruthLabel=PENDING_LABEL
+  NOTE: C17 and C13 are BYTE-IDENTICAL (same 160-byte PNG). Single-color solid green.
+
+IMAGE_EXISTS: YES
+PNG_DIMENSIONS: 200 x 28
+TARGET_DESCRIPTION (result file): Select the resulting cell.
+TARGET_DESCRIPTION (PHASE_4.md audit): Identify the green Excel title-bar area shown in the crop.
+CATEGORY: native_uia_excel_title / APPLICATION: EXCEL / RECORDED_REGION: 780,45,200,28
+
+HUMAN VISUAL EVIDENCE:
+  1 unique color: RGB(33,115,70) across ALL 5600 pixels. 100% Excel green.
+  0 white, 0 dark, 0 text pixels.
+  What is visible: Solid Excel green rectangle. The region 780,45,200,28 captures the Excel title bar/ribbon.
+    Nothing identifiable except the solid green color itself.
+    Select the resulting cell: no cell visible. Audit says Identify the green Excel title-bar area -- this is
+    the only honest description since the entire crop is green with no content.
+  Is image usable: UNUSABLE for target identification beyond confirming it is a green area.
+
+SYSTEM EVIDENCE:
+  DECISION: ABSTAIN / OCR_STATUS: INSUFFICIENT / OCR_TEXT: (empty)
+  PERCEPTION_MILLIS: 432
+
+GROUND-TRUTH PROPOSAL:
+  TARGET_VISIBILITY: ABSENT
+  PROPOSED_GROUND_TRUTH_LABEL: Excel_green_title_bar_area
+  (Only the solid green bar itself is identifiable; no UI content beyond the green color.)
+  PROPOSED_GROUND_TRUTH_MATCH: NOT_SCORABLE
+  MATCH_REASON: Image is solid single-color green -- no UI content at all.
+    Ground truth cannot be established beyond identifying the solid green area.
+    NOT_SCORABLE.
+  SCORING_RULE_STATUS: NOT_DEFINED
+
+GROUND_TRUTH_CONFIRMED: NO / RECORD_MODIFIED: NO / STOP_BEFORE_WRITE: YES
+
+---
+
+## CASE: C18
+*** PAINT PROXY CASE -- BYTE-IDENTICAL TO C07 ***
+*** C18_PLATFORM_VALIDITY: PAINT_PROXY_ONLY ***
+
+CASE_RECORD:
+  caseId=C18 / category=custom_render_unavailable_blender
+  targetDescription=Move to the viewport.
+  instructionFlag=BLENDER_UNAVAILABLE_PAINT_PROXY_FLAGGED
+  region=200,700,300,200
+  appProcess=mspaint / appTitle=Untitled - Paint / appHwnd=263758
+  decision=ABSTAIN / reason=visual_provider_not_configured
+  uiaStatus=FAILURE / ocrStatus=AVAILABLE
+  ocrText=jools. (c) Brushes Shapes. / ocrConfidence=0.39789194 / ocrWordCount=4
+  perceptionMillis=398 / groundTruthLabel=PENDING_LABEL
+  NOTE: C18 and C07 are BYTE-IDENTICAL (same 2403-byte PNG). Same Paint canvas crop.
+
+IMAGE_EXISTS: YES
+PNG_DIMENSIONS: 300 x 200
+TARGET_DESCRIPTION (result file): Move to the viewport.
+TARGET_DESCRIPTION (PHASE_4.md audit): Select the blank white Paint canvas in the proxy capture; Blender is unavailable.
+CATEGORY: custom_render_unavailable_blender / APPLICATION: Paint (mspaint) / RECORDED_REGION: 200,700,300,200
+
+HUMAN VISUAL EVIDENCE:
+  (Identical to C07 -- byte-for-byte same PNG)
+  98.1% white pixels (47768/60000). 6308px light teal-white (243,252,251) -- Paint chrome.
+  300px gray (235,235,235) -- toolbar border. 0 dark text pixels.
+  What is visible: Mostly blank white Paint canvas. Small Paint toolbar strip at top/edge.
+    OCR noise from toolbar strip.
+  C18 is a Paint canvas proxy -- Blender is unavailable.
+  Move to the viewport: Blender concept -- no Blender viewport in this crop. Paint only.
+  Do NOT claim this validates any Blender-specific behavior.
+
+SYSTEM EVIDENCE:
+  DECISION: ABSTAIN / OCR_TEXT: jools. (c) Brushes Shapes. / OCR_CONFIDENCE: 0.39789194
+  PERCEPTION_MILLIS: 398
+
+C18_PLATFORM_VALIDITY: PAINT_PROXY_ONLY
+C18 shows Paint canvas only. Does NOT validate Blender behavior. Cannot be relabeled as Blender observation.
+
+GROUND-TRUTH PROPOSAL:
+  TARGET_VISIBILITY: CLEAR (for Paint canvas) / ABSENT (for Blender viewport)
+  PROPOSED_GROUND_TRUTH_LABEL: blank_white_Paint_canvas_proxy
+  PROPOSED_GROUND_TRUTH_MATCH: NOT_SCORABLE
+  MATCH_REASON: ABSTAIN. Target (Move to the viewport) refers to Blender -- not testable against Paint crop.
+    This is a proxy-only capture; Blender environment absent. NOT_SCORABLE.
+  SCORING_RULE_STATUS: NOT_DEFINED
+
+GROUND_TRUTH_CONFIRMED: NO / RECORD_MODIFIED: NO / STOP_BEFORE_WRITE: YES
+
+---
+---
+
+## BATCH SUMMARY: PHASE_4_MANUAL_GROUND_TRUTH_REVIEW
+
+TOTAL_CASES_REVIEWED: 17
+CASES_WITH_VALID_IMAGES: 17
+CASES_WITH_MISSING_IMAGES: 0
+
+IMAGE CONTENT SUMMARY:
+  CASES_CLEAR: 7 (C03, C04, C05, C07, C08, C12, C14)
+  CASES_UNCLEAR: 5 (C02, C06, C09, C10, C16)
+  CASES_ABSENT (no target): 4 (C11 partial, C13, C15, C17)
+  CASES_UNUSABLE (solid color): 2 (C13, C17)
+
+PROPOSED_LABELS:
+  C02 = Excel_ribbon_green_area
+  C03 = CE_button_Calculator
+  C04 = highlighted_paragraph_about_calibration_evidence_for_OCR_targets
+  C05 = CALIBRATION_SECTION_HEADER
+  C06 = Edit_control_Paint_toolbar
+  C07 = blank_white_Paint_canvas
+  C08 = blank_white_Paint_canvas_below_Colours_panel
+  C09 = New_control_File_Explorer_toolbar (UNCLEAR -- human visual confirmation required)
+  C10 = File_menu_Notepad (UNCLEAR -- 50x28 crop, small)
+  C11 = green_Excel_cell_with_text_ending_in_covered_Files (UNCLEAR -- text not readable from pixels)
+  C12 = File_menu_Notepad
+  C13 = NO_VALID_TARGET (solid Excel green, no UI content)
+  C14 = CALIBRATION_SECTION_with_header_and_highlighted_paragraph
+  C15 = NO_VALID_TARGET (78% Excel green in Calculator crop -- possible mis-capture)
+  C16 = demo_folder_in_File_Explorer (UNCLEAR -- OCR reads deme)
+  C17 = Excel_green_title_bar_area (solid green bar, unusable for target ID)
+  C18 = blank_white_Paint_canvas_proxy
+
+PROPOSED_MATCH (all NOT_SCORABLE -- ABSTAIN rule not defined):
+  C02 = NOT_SCORABLE
+  C03 = NOT_SCORABLE
+  C04 = NOT_SCORABLE
+  C05 = NOT_SCORABLE
+  C06 = NOT_SCORABLE
+  C07 = NOT_SCORABLE
+  C08 = NOT_SCORABLE
+  C09 = NOT_SCORABLE
+  C10 = NOT_SCORABLE
+  C11 = NOT_SCORABLE
+  C12 = NOT_SCORABLE
+  C13 = NOT_SCORABLE
+  C14 = NOT_SCORABLE
+  C15 = NOT_SCORABLE
+  C16 = NOT_SCORABLE
+  C17 = NOT_SCORABLE
+  C18 = NOT_SCORABLE
+
+NOTE: If project rule determines ABSTAIN = FALSE (not NOT_SCORABLE), all 17 would change to FALSE.
+This is a policy decision requiring human confirmation.
+
+CASES_REQUIRING_SPECIAL_REVIEW: C09, C16, C18
+CASES_REQUIRING_HUMAN_VISUAL_CONFIRMATION: C09, C10, C11, C16 (pixel analysis insufficient)
+CASES_NOT_SCORABLE: ALL 17 (C02-C18)
+
+DATA DISCREPANCIES FOUND:
+  C07 == C18: Byte-identical PNGs (different case IDs, categories, instructionFlags)
+  C13 == C17: Byte-identical PNGs (different case IDs, categories, regions)
+  C15: Recorded as Calculator but pixel data shows 78% Excel green -- possible mis-capture
+  C09: Category uia_explorer_item conflicts with visible File Explorer toolbar (no list item)
+  C16: Category no_access_desktop_empty conflicts with visible folder content (NOT empty)
+
+CASES_WITH_DATA_DISCREPANCIES: C07/C18, C13/C17, C15, C09, C16
+
+---
+NO FILES MODIFIED. WAITING FOR HUMAN CONFIRMATION.
+---

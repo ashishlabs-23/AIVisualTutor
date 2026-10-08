@@ -1,0 +1,356 @@
+# PHASE 4 — MANUAL GROUND-TRUTH VERIFICATION REPORT
+## Cases C02–C18 | READ-ONLY PASS
+## NO FILES MODIFIED — STOP BEFORE WRITE
+
+---
+
+## PRE-CASE PIXEL ANALYSIS FINDINGS
+
+| Observation | Detail |
+|---|---|
+| C07 == C18 (byte-identical) | Both 2403 bytes, identical byte-for-byte. Same Paint canvas crop. |
+| C13 == C17 (byte-identical) | Both 160 bytes, identical byte-for-byte. 200x28 solid Excel-green single-color rectangle. |
+| C04 is sub-region of C14 | C04 (500x120) pixel-perfectly at y=20..140 of C14 (550x200). |
+| C05 is sub-region of C12 | C05 (500x50) pixel-perfectly at y=30..80, x=20..520 of C12 (600x200). |
+| C15 is 78% Excel-green | 2730/3500 pixels are RGB(33,115,70). NOT a Calculator button. Possible mis-capture. |
+| C02 & C11 are Excel-green | C02 (100x30) 97% green, C11 (120x40) 93.5% green. Both Excel ribbon/cell areas. |
+
+## SCORING RULE STATUS
+Project does NOT define whether ABSTAIN against a valid visible target scores FALSE or NOT_SCORABLE.
+All 17 cases: decision=ABSTAIN, reason=visual_provider_not_configured.
+ABSTAIN != TRUE in any case. Rule for FALSE vs NOT_SCORABLE: NOT_DEFINED.
+This report proposes NOT_SCORABLE for all ABSTAIN cases per instruction to not make unsupported claims.
+
+---
+
+## CASE: C02
+
+CASE_RECORD:
+  caseId=C02
+  category=native_uia_excel_ribbon
+  targetDescription=Enter a value.
+  instructionFlag=MOCK_EXCEL_STEP2_FLAGGED_RIBBON_NOT_CELL
+  region=820,120,100,30
+  cropPath=...results/C02_crop.png
+  appProcess=EXCEL / appTitle=Excel (Product Activation Failed) / appHwnd=394800
+  decision=ABSTAIN / reason=visual_provider_not_configured
+  uiaStatus=FAILURE / ocrStatus=INSUFFICIENT
+  ocrText=(empty) / ocrConfidence=null / ocrWordCount=0
+  perceptionMillis=569 / processingMillis=569
+  groundTruthLabel=PENDING_LABEL / groundTruthMatch=
+
+IMAGE_PATH: c:\Users\PC\Desktop\AIVisualTutor\docs\calibration_4gap2\results\C02_crop.png
+IMAGE_EXISTS: YES
+PNG_DIMENSIONS: 100 x 30
+TARGET_DESCRIPTION (result file): Enter a value.
+TARGET_DESCRIPTION (PHASE_4.md audit): Identify the visible green Excel ribbon area.
+CATEGORY: native_uia_excel_ribbon
+APPLICATION: EXCEL
+RECORDED_REGION: 820,120,100,30
+
+HUMAN VISUAL EVIDENCE:
+  Dominant color: RGB(33,115,70) -- 2909/3000 pixels (97%). Excel green ribbon.
+  37 white pixels (small artifact/border). 3 pixels of lighter green (130,176,150).
+  46 unique colors. No dark text pixels. No readable UI labels.
+  What is visible: A narrow strip of Excel green ribbon. No specific button or control visible.
+  Is target visible: PARTIAL (the green ribbon area itself is visible, but no value-entry control).
+  Can target be identified unambiguously: NO for original target (Enter a value); 
+    YES for audit target (green Excel ribbon area identifiable by color).
+
+SYSTEM EVIDENCE:
+  DECISION: ABSTAIN
+  REASON: visual_provider_not_configured
+  UIA_STATUS: FAILURE / UIA_OBJECT: null / UIA_TEXT: null / UIA_BOUNDS: null / UIA_CONFIDENCE: null
+  OCR_STATUS: INSUFFICIENT / OCR_TEXT: (empty) / OCR_CONFIDENCE: null / OCR_WORD_COUNT: 0
+  VISUAL_AVAILABILITY: NOT_CONFIGURED / VISUAL_INVOCATION: NOT_CONFIGURED
+  PERCEPTION_MILLIS: 569 / PROCESSING_MILLIS: 569
+
+GROUND-TRUTH PROPOSAL:
+  TARGET_VISIBILITY: UNCLEAR
+  PROPOSED_GROUND_TRUTH_LABEL: Excel_ribbon_green_area
+  PROPOSED_GROUND_TRUTH_MATCH: NOT_SCORABLE
+  MATCH_REASON: ABSTAIN (visual_provider_not_configured). No rule defines ABSTAIN-vs-visible-target score.
+    Additionally, result file targetDescription (Enter a value.) conflicts with visible content (green ribbon).
+  SCORING_RULE: ABSTAIN covers missing target, unavailable/failed provider, or insufficient evidence.
+  SCORING_RULE_STATUS: NOT_DEFINED (for ABSTAIN vs valid target)
+
+GROUND_TRUTH_CONFIRMED: NO
+RECORD_MODIFIED: NO
+STOP_BEFORE_WRITE: YES
+
+---
+
+## CASE: C03
+
+CASE_RECORD:
+  caseId=C03
+  category=native_uia_calculator
+  targetDescription=Press Enter.
+  instructionFlag=NO_MOCK_MATCH_AD_HOC_FLAGGED_calc_equals_as_Enter
+  region=1100,780,80,50
+  appProcess=ApplicationFrameHost / appTitle=Calculator / appHwnd=526012
+  decision=ABSTAIN / reason=visual_provider_not_configured
+  uiaStatus=FAILURE / ocrStatus=AVAILABLE
+  ocrText=cE / ocrConfidence=0.8393956 / ocrWordCount=1
+  perceptionMillis=437 / processingMillis=438
+  groundTruthLabel=PENDING_LABEL / groundTruthMatch=
+
+IMAGE_PATH: ...results/C03_crop.png
+IMAGE_EXISTS: YES
+PNG_DIMENSIONS: 80 x 50
+TARGET_DESCRIPTION (result file): Press Enter.
+TARGET_DESCRIPTION (PHASE_4.md audit): Select the visible CE button in Calculator.
+CATEGORY: native_uia_calculator
+APPLICATION: Calculator
+RECORDED_REGION: 1100,780,80,50
+
+HUMAN VISUAL EVIDENCE:
+  Dominant colors: near-white with greenish tint (246,250,247)=1429px, (246,251,247)=1191px.
+    Matches Windows 11 Calculator button style (light green-white background).
+  34 very dark pixels at y=3..12, x=26..39 -- text glyphs (2-character label).
+  No Excel green. No blue-dominant pixels.
+  What is visible: Calculator button with light background and small 2-char text label at top-center.
+    OCR read cE -- consistent with CE (Clear Entry) button.
+  Is target visible: YES (CE button clearly visible).
+  Can target be identified unambiguously: YES -- CE button, NOT an Enter button.
+    Original result file target Press Enter does not match; audit correctly says CE button.
+
+SYSTEM EVIDENCE:
+  DECISION: ABSTAIN
+  REASON: visual_provider_not_configured
+  UIA_STATUS: FAILURE / UIA_OBJECT: null
+  OCR_STATUS: AVAILABLE / OCR_TEXT: cE / OCR_CONFIDENCE: 0.8393956 / OCR_WORD_COUNT: 1
+  VISUAL_AVAILABILITY: NOT_CONFIGURED / VISUAL_INVOCATION: NOT_CONFIGURED
+  PERCEPTION_MILLIS: 437 / PROCESSING_MILLIS: 438
+
+GROUND-TRUTH PROPOSAL:
+  TARGET_VISIBILITY: CLEAR
+  PROPOSED_GROUND_TRUTH_LABEL: CE_button_Calculator
+  PROPOSED_GROUND_TRUTH_MATCH: NOT_SCORABLE
+  MATCH_REASON: ABSTAIN (visual_provider_not_configured). Rule for ABSTAIN vs visible target not defined.
+  SCORING_RULE_STATUS: NOT_DEFINED
+
+GROUND_TRUTH_CONFIRMED: NO
+RECORD_MODIFIED: NO
+STOP_BEFORE_WRITE: YES
+
+---
+
+## CASE: C04
+
+CASE_RECORD:
+  caseId=C04 / category=text_ocr_notepad
+  targetDescription=Read the highlighted text.
+  instructionFlag=MOCK_PDF_STEP2_FLAGGED_NOTEPAD_NOT_PDF
+  region=60,140,500,120
+  appProcess=Notepad / appTitle=*RegionSelector-Isolated-Test.txt - Notepad / appHwnd=264134
+  decision=ABSTAIN / reason=visual_provider_not_configured
+  uiaStatus=FAILURE / ocrStatus=AVAILABLE
+  ocrText=ad this highlighted paragraph about calibration evidence for 0c
+  ocrConfidence=0.9115205 / ocrWordCount=9 / perceptionMillis=523
+  groundTruthLabel=PENDING_LABEL / groundTruthMatch=
+
+IMAGE_PATH: ...results/C04_crop.png
+IMAGE_EXISTS: YES
+PNG_DIMENSIONS: 500 x 120
+TARGET_DESCRIPTION (result file): Read the highlighted text.
+TARGET_DESCRIPTION (PHASE_4.md audit): Read the visible paragraph about calibration evidence for OCR targets.
+CATEGORY: text_ocr_notepad / APPLICATION: Notepad / RECORDED_REGION: 60,140,500,120
+NOTE: C04 is a pixel-perfect sub-region of C14 (at y=20..140 of C14).
+
+HUMAN VISUAL EVIDENCE:
+  Dominant: RGB(249,249,249)=57258px (95.4%) -- near-white Notepad background.
+  377 black pixels (text). 211 blue highlight (0,51,138). 208 teal (213,249,249). 205 orange (138,51,0).
+  Also: 154 light blue (97,177,249), 154 amber (213,138,51).
+  What is visible: Notepad text area with highlighted/colored paragraph text. Black text + colored highlights.
+    OCR captured paragraph content (highlighting visible as colored pixel clusters).
+  Is target visible: YES -- highlighted paragraph clearly visible.
+  Can target be identified unambiguously: YES.
+
+SYSTEM EVIDENCE:
+  DECISION: ABSTAIN / REASON: visual_provider_not_configured
+  UIA_STATUS: FAILURE
+  OCR_STATUS: AVAILABLE / OCR_TEXT: ad this highlighted paragraph about calibration evidence for 0c
+  OCR_CONFIDENCE: 0.9115205 / OCR_WORD_COUNT: 9
+  PERCEPTION_MILLIS: 523 / PROCESSING_MILLIS: 524
+
+GROUND-TRUTH PROPOSAL:
+  TARGET_VISIBILITY: CLEAR
+  PROPOSED_GROUND_TRUTH_LABEL: highlighted_paragraph_about_calibration_evidence_for_OCR_targets
+  PROPOSED_GROUND_TRUTH_MATCH: NOT_SCORABLE
+  MATCH_REASON: ABSTAIN (visual_provider_not_configured). Rule for ABSTAIN vs visible target not defined.
+  SCORING_RULE_STATUS: NOT_DEFINED
+
+GROUND_TRUTH_CONFIRMED: NO / RECORD_MODIFIED: NO / STOP_BEFORE_WRITE: YES
+
+---
+
+## CASE: C05
+
+CASE_RECORD:
+  caseId=C05 / category=text_ocr_notepad_header
+  targetDescription=Locate the target section.
+  instructionFlag=MOCK_PDF_STEP1_FLAGGED_NOTEPAD_NOT_PDF
+  region=60,100,500,50
+  appProcess=Notepad / appHwnd=264134
+  decision=ABSTAIN / reason=visual_provider_not_configured
+  uiaStatus=FAILURE / ocrStatus=AVAILABLE
+  ocrText=LIBRATION SECTION HEADER / ocrConfidence=0.83472395 / ocrWordCount=3
+  perceptionMillis=401 / groundTruthLabel=PENDING_LABEL
+
+IMAGE_EXISTS: YES
+PNG_DIMENSIONS: 500 x 50
+TARGET_DESCRIPTION (result file): Locate the target section.
+TARGET_DESCRIPTION (PHASE_4.md audit): Locate the target section. (unchanged in audit)
+CATEGORY: text_ocr_notepad_header / APPLICATION: Notepad / RECORDED_REGION: 60,100,500,50
+NOTE: C05 is a pixel-perfect sub-region of C12 (at y=30..80, x=20..520 of C12).
+
+HUMAN VISUAL EVIDENCE:
+  Dominant: RGB(249,249,249)=16487px, (248,248,248)=6750px -- near-white Notepad.
+  141 black pixels (text). 94 blue pixels (0,97,177) -- colored text.
+  500 mid-gray pixels (235,235,235) -- horizontal rule/separator.
+  Orange (249,213,138), amber (177,97,0) color accents.
+  What is visible: Notepad header line. OCR read LIBRATION SECTION HEADER -- CA prefix missed.
+    Full text is CALIBRATION SECTION HEADER. Gray band = separator.
+  Is target visible: YES -- section header clearly visible.
+
+SYSTEM EVIDENCE:
+  DECISION: ABSTAIN / REASON: visual_provider_not_configured
+  OCR_STATUS: AVAILABLE / OCR_TEXT: LIBRATION SECTION HEADER / OCR_CONFIDENCE: 0.83472395
+  PERCEPTION_MILLIS: 401
+
+GROUND-TRUTH PROPOSAL:
+  TARGET_VISIBILITY: CLEAR
+  PROPOSED_GROUND_TRUTH_LABEL: CALIBRATION_SECTION_HEADER
+  PROPOSED_GROUND_TRUTH_MATCH: NOT_SCORABLE
+  MATCH_REASON: ABSTAIN. Rule for ABSTAIN vs visible target not defined.
+  SCORING_RULE_STATUS: NOT_DEFINED
+
+GROUND_TRUTH_CONFIRMED: NO / RECORD_MODIFIED: NO / STOP_BEFORE_WRITE: YES
+
+---
+
+## CASE: C06
+
+CASE_RECORD:
+  caseId=C06 / category=icon_paint_toolbar
+  targetDescription=Open the Add menu.
+  instructionFlag=MOCK_BLENDER_STEP1_FLAGGED_PAINT_TOOL_NOT_ADD_MENU
+  region=80,600,48,48
+  appProcess=mspaint / appTitle=Untitled - Paint / appHwnd=263758
+  decision=ABSTAIN / reason=visual_provider_not_configured
+  uiaStatus=FAILURE / ocrStatus=AVAILABLE
+  ocrText=Ed / ocrConfidence=0.47284463 / ocrWordCount=1
+  perceptionMillis=562 / groundTruthLabel=PENDING_LABEL
+
+IMAGE_EXISTS: YES
+PNG_DIMENSIONS: 48 x 48
+TARGET_DESCRIPTION (result file): Open the Add menu.
+TARGET_DESCRIPTION (PHASE_4.md audit): Select the visible Edit control in Paint toolbar.
+CATEGORY: icon_paint_toolbar / APPLICATION: Paint / RECORDED_REGION: 80,600,48,48
+
+HUMAN VISUAL EVIDENCE:
+  Dominant: RGB(243,252,251)=735px, RGB(231,248,246)=552px -- light teal-white (Paint toolbar).
+  37 very dark pixels at y=7..16, x=0..44 -- text/icon glyph at top.
+  72 mid-gray pixels (borders/separators).
+  OCR read Ed (low confidence 0.47) -- likely part of Edit label.
+  What is visible: 48x48 Paint toolbar icon/button. Light teal-white background.
+    Dark glyph at top suggests text; Ed likely = Edit. No Add menu exists in Paint.
+  Is target visible: UNCLEAR (paint control visible but only 48x48, glyph partially cut).
+
+SYSTEM EVIDENCE:
+  DECISION: ABSTAIN / OCR_TEXT: Ed / OCR_CONFIDENCE: 0.47284463
+  PERCEPTION_MILLIS: 562
+
+GROUND-TRUTH PROPOSAL:
+  TARGET_VISIBILITY: UNCLEAR
+  PROPOSED_GROUND_TRUTH_LABEL: Edit_control_Paint_toolbar
+  PROPOSED_GROUND_TRUTH_MATCH: NOT_SCORABLE
+  MATCH_REASON: ABSTAIN. Original target Open the Add menu does not exist in Paint.
+    Audit target (Edit control) is plausible but crop is small and label partially cut.
+  SCORING_RULE_STATUS: NOT_DEFINED
+
+GROUND_TRUTH_CONFIRMED: NO / RECORD_MODIFIED: NO / STOP_BEFORE_WRITE: YES
+
+---
+
+## CASE: C07
+
+CASE_RECORD:
+  caseId=C07 / category=custom_render_paint_canvas
+  targetDescription=Move to the viewport.
+  instructionFlag=MOCK_BLENDER_STEP4_FLAGGED_PAINT_PROXY_BLENDER_UNAVAILABLE
+  region=200,700,300,200
+  appProcess=mspaint / appHwnd=263758
+  decision=ABSTAIN / reason=visual_provider_not_configured
+  ocrText=jools. (c) Brushes Shapes. / ocrConfidence=0.39789194 / ocrWordCount=4
+  perceptionMillis=449 / groundTruthLabel=PENDING_LABEL
+  NOTE: C07 and C18 are BYTE-IDENTICAL (same 2403-byte PNG).
+
+IMAGE_EXISTS: YES
+PNG_DIMENSIONS: 300 x 200
+TARGET_DESCRIPTION (result file): Move to the viewport.
+TARGET_DESCRIPTION (PHASE_4.md audit): Select the blank white Paint canvas area below the toolbar.
+CATEGORY: custom_render_paint_canvas / APPLICATION: Paint / RECORDED_REGION: 200,700,300,200
+
+HUMAN VISUAL EVIDENCE:
+  98.1% white pixels (255,255,255) = 47768/60000.
+  6308px RGB(243,252,251) + 4800px (243,252,250) -- Paint toolbar chrome (teal-white strip).
+  300px RGB(235,235,235) -- gray toolbar border. 0 dark text pixels.
+  What is visible: Predominantly blank white Paint canvas. Small toolbar strip at top/edge.
+    OCR noise from toolbar strip. Move to the viewport is Blender concept -- Paint has no viewport.
+  Is target visible: YES (blank white Paint canvas clearly visible).
+
+SYSTEM EVIDENCE:
+  DECISION: ABSTAIN / OCR_TEXT: jools. (c) Brushes Shapes. / OCR_CONFIDENCE: 0.39789194
+  PERCEPTION_MILLIS: 449
+
+GROUND-TRUTH PROPOSAL:
+  TARGET_VISIBILITY: CLEAR
+  PROPOSED_GROUND_TRUTH_LABEL: blank_white_Paint_canvas
+  PROPOSED_GROUND_TRUTH_MATCH: NOT_SCORABLE
+  MATCH_REASON: ABSTAIN. Original target (Move to the viewport) is Blender-specific, not applicable to Paint.
+  SCORING_RULE_STATUS: NOT_DEFINED
+
+GROUND_TRUTH_CONFIRMED: NO / RECORD_MODIFIED: NO / STOP_BEFORE_WRITE: YES
+
+---
+
+## CASE: C08
+
+CASE_RECORD:
+  caseId=C08 / category=no_structure_paint_canvas
+  targetDescription=Confirm the object.
+  instructionFlag=MOCK_BLENDER_STEP5_FLAGGED_PAINT_PROXY_BLENDER_UNAVAILABLE
+  region=520,720,200,150
+  appProcess=mspaint / appHwnd=263758
+  decision=ABSTAIN / reason=visual_provider_not_configured
+  ocrText=Colours / ocrConfidence=0.47052506 / ocrWordCount=1
+  perceptionMillis=428 / groundTruthLabel=PENDING_LABEL
+
+IMAGE_EXISTS: YES
+PNG_DIMENSIONS: 200 x 150
+TARGET_DESCRIPTION (result file): Confirm the object.
+TARGET_DESCRIPTION (PHASE_4.md audit): Select the blank white Paint canvas area below the Colours panel.
+CATEGORY: no_structure_paint_canvas / APPLICATION: Paint / RECORDED_REGION: 520,720,200,150
+
+HUMAN VISUAL EVIDENCE:
+  98.8% white pixels (255,255,255) = 25800/30000.
+  2137px RGB(243,252,249), 730px (244,252,249), 559px (243,252,250) -- Paint chrome (teal-white).
+  284 mid-gray pixels. 0 dark text pixels.
+  What is visible: Almost entirely blank white Paint canvas. Colours panel edge visible at crop edge.
+    OCR reading Colours is from the panel label at the edge.
+  Is target visible: YES (blank Paint canvas visible). Confirm the object is Blender concept.
+
+SYSTEM EVIDENCE:
+  DECISION: ABSTAIN / OCR_TEXT: Colours / OCR_CONFIDENCE: 0.47052506
+  PERCEPTION_MILLIS: 428
+
+GROUND-TRUTH PROPOSAL:
+  TARGET_VISIBILITY: CLEAR
+  PROPOSED_GROUND_TRUTH_LABEL: blank_white_Paint_canvas_below_Colours_panel
+  PROPOSED_GROUND_TRUTH_MATCH: NOT_SCORABLE
+  MATCH_REASON: ABSTAIN. Original target (Confirm the object) is Blender concept not in Paint.
+  SCORING_RULE_STATUS: NOT_DEFINED
+
+GROUND_TRUTH_CONFIRMED: NO / RECORD_MODIFIED: NO / STOP_BEFORE_WRITE: YES

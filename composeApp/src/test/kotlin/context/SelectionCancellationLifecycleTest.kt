@@ -36,7 +36,10 @@ class SelectionCancellationLifecycleTest {
         val focus = FakeFocusManager()
         val capture = CountingCapture()
         var ocrCalls = 0
-        val processor = ContextProcessor(OCRService { ocrCalls++; OcrResult("unexpected", .9f, engineName = "test") })
+        val processor = ContextProcessor(
+            OCRService { ocrCalls++; OcrResult("unexpected", .9f, engineName = "test") },
+            calibrationResultSink = NoOpCalibrationResultSink
+        )
         val controller = RegionSelectionController(RecordingContextLogger())
         val acquisition = VisualContextAcquisition(controller, ApplicationContextProvider { null }, capture, processor, focus)
         val snapshot = FrozenScreenSnapshot(
@@ -70,7 +73,7 @@ class SelectionCancellationLifecycleTest {
         val acquisition = VisualContextAcquisition(
             RegionSelectionController(RecordingContextLogger()),
             ApplicationContextProvider { order += "application"; null },
-            CountingCapture(), ContextProcessor(), focus
+            CountingCapture(), ContextProcessor(calibrationResultSink = NoOpCalibrationResultSink), focus
         )
         val session = assertNotNull(acquisition.begin())
         assertEquals(listOf("foreground", "application"), order)

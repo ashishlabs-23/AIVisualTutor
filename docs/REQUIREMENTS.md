@@ -51,18 +51,20 @@ This document details the software, hardware, runtime, and architectural require
   * Ctrl+Shift+Space selection shortcut alongside the Phase 2 shortcut.
   * Frozen region selection, application/window context, `VisualContext`, processing lifecycle, and selection geometry.
   * Basic hotkey-triggered selector rendering exercised in 8 live captures; DPI scaling, multi-monitor behavior, and resilience checklist items remain unverified.
-* **Phase 4: Evidence-oriented perception baseline**
-  * Windows UI Automation and local Tesseract OCR evidence providers behind replaceable interfaces.
-  * Deterministic evidence evaluation with `ACCEPT`, `REFINE`, `ESCALATE`, and `ABSTAIN` decisions.
-  * Synthetic provider/evaluator regression coverage and saved calibration artifacts.
-  * Phase 4 status is `PARTIAL_SIGNAL_UIA_OCR_PENDING_GROUND_TRUTH`; the 18 calibration labels are still pending, so correctness is not yet reportable.
-  * Visual grounding is `NOT_CONFIGURED`. A CPU feasibility attempt was blocked by runtime/memory constraints; the local Vulkan/GPU smoke run failed with a driver/runtime error. No third model stack is configured.
+* **Phase 4: Evidence-oriented perception**
+  * **Implemented:** Windows UI Automation, local Tess4J/Tesseract OCR, a deterministic evidence evaluator, a llama.cpp/mtmd visual-grounding provider boundary for UGround-V1-2B, automatic schema-v3 calibration-result persistence, and a screenshot preview showing the supplied target and UIA/OCR/vision/decision status.
+  * **Selected visual model:** UGround-V1-2B (`osunlp/UGround-V1-2B`, Apache-2.0). The Q4_K_M GGUF and matching projector are third-party quantization from `mradermacher/UGround-V1-2B-GGUF`; they are installed under LocalAppData and are not stored in the repository.
+  * **Executed:** UIA/OCR have saved-capture observations, including four Blender cases. The real UGround model was executed through llama.cpp CPU inference on saved crops B01–B04 and C01–C18 using `--image-min-tokens 1024`. All 22 runs returned parseable points; all 22 deterministic evaluator decisions were `ABSTAIN`. An earlier 2026-10-08 memory check (about 1.69 GiB available) was safely `HOST_BLOCKED`; the later execution preflights passed the 3,629,247,837-byte guard. Model execution and parsed output are established, but no coordinate-level ground truth or visual accuracy/correctness is established.
+  * **Persisted:** every completed calibration attempt records crop and structured provider/evaluator state, including unavailable, not-configured, host-blocked, failed, cancelled, and successful visual outcomes. Human labels remain separate research annotations; the 18 C cases and four Blender cases currently have human-authored labels (22/22), but labels are never required for operation and new machine records may use `PENDING` or `null`.
+  * **Validated:** automated tests cover provider state handling and persistence, strict point parsing, preview status, and preservation of separate UIA/OCR evidence. No UGround accuracy, correctness, benefit, or visual solution of Blender cases is established.
 
 ### Out of scope and not yet validated
 * **No dynamic instruction generation or LLM-based tutoring:** steps are mock data from `MockTutorData.kt`.
-* **No configured VLM/visual-grounding provider:** the contract exists, but visual grounding remains `NOT_CONFIGURED`.
-* **No measured real-target correctness:** UIA/OCR have been exercised on saved/live captures, but UIA intersection does not prove the intended target was identified. Human-confirmed labels are required before reporting correctness.
+* **No executed UGround inference on the current host:** the provider integration boundary is implemented, but the current environment fails the memory safety guard. No visual grounding accuracy or correctness result is available.
+* **Limited measured real-target correctness:** saved UIA/OCR and four Blender cases have human labels, but this sparse set does not establish general modality effectiveness. UIA bounds intersecting a crop do not prove that the intended target was identified. Human labels are optional for operation and are used only for research scoring when their format supports it.
 * **No verified cross-provider geometry fusion:** OCR crop-pixel bounds and UIA desktop bounds are not compared without a verified coordinate transform.
+* The historical capture-time UIA failures versus later saved-crop replay successes remain unresolved.
+* No user study has been performed; learning gain, usability, and workload are not measured.
 * **No Computer Vision / Object Detection:** coordinates are user-selected; visual object detection is not configured.
 * **No Real-Time Action Verification:** The application does not monitor user actions to confirm task completion.
 * **No Continuous Video Streaming:** Screen frames are acquired only on-demand when explicitly triggered.

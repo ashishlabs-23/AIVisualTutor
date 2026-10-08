@@ -1,0 +1,27 @@
+caseId=B01
+category=blender_structured_text
+targetDescription=Select the visible Cube object label in the Blender Outliner.
+instructionFlag=BLENDER_B01_FINAL_AUDIT_RERUN
+region=1600,128,180,45
+cropPath=C:\Users\PC\Desktop\AIVisualTutor\docs\calibration_4blender\runs\20261008-final-audit\results-clean-env\B01_crop.png
+appProcess=blender
+appTitle=* (Unsaved) - Blender 5.2.2 LTS
+appHwnd=985116
+decision=ABSTAIN
+reason=visual_provider_not_configured
+uiaStatus=AVAILABLE
+ocrStatus=INSUFFICIENT
+visualAvailability=NOT_CONFIGURED
+visualInvocation=NOT_CONFIGURED
+uiaObject=* (Unsaved) - Blender 5.2.2 LTS
+uiaText=null
+uiaBounds=java.awt.Rectangle[x=-8,y=-8,width=1936,height=1048]
+uiaConfidence=1.0
+ocrText=
+ocrConfidence=null
+ocrWordCount=0
+ocrMillis=309
+perceptionMillis=414
+processingMillis=423
+groundTruthLabel=NOT_EVALUABLE
+groundTruthMatch=Recaptured region is blank and does not contain the Blender target; excluded from B01 case scoring.

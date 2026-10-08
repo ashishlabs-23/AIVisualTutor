@@ -1,0 +1,6 @@
+artifact	source_application	window_title	pid	hwnd	screen_or_crop_region	dimensions_pixels	file_bytes	sha256
+blender_desktop_before.png	Blender 5.2.2 LTS	* (Unsaved) - Blender 5.2.2 LTS	4988	985116	full display	1920x1080	498759	30137eb702cb41583059f65087d6e857613dcb41e807c059babb011368647644
+crops/B01_crop.png	Blender 5.2.2 LTS	* (Unsaved) - Blender 5.2.2 LTS	4988	985116	1600,128,180,45	180x45	3463	f85ec6b066bd3206b64a4ac174d1e60fcb6ca88f973ad157f62ffc28184a4baf
+crops/B02_crop.png	Blender 5.2.2 LTS	* (Unsaved) - Blender 5.2.2 LTS	4988	985116	1650,350,250,44	250x44	2138	de4b0ed1e21494437e786b69b4fd5aae63e8367987b69e068bc94fc2b2ae72ec
+crops/B03_crop.png	Blender 5.2.2 LTS	* (Unsaved) - Blender 5.2.2 LTS	4988	985116	680,385,245,225	245x225	13359	bd7a08197539bf2b694397219ad5767f07bedb7c89bef0864a776bb1b9357eef
+crops/B04_crop.png	Blender 5.2.2 LTS	* (Unsaved) - Blender 5.2.2 LTS	4988	985116	5,178,54,52	54x52	1552	f2942ef47ed3ceabdc57c514c983fcee690f8358fb81929de50912cb2b9d0433

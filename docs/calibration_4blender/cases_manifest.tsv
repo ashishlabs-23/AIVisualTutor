@@ -1,0 +1,5 @@
+caseId	category	targetDescription	x	y	w	h	processHint	instructionFlag
+B01	blender_structured_text	Select the visible Cube object label in the Blender Outliner.	1600	128	180	45	blender	BLENDER_B01_TEXT
+B02	blender_property_control	Select the visible Location X property field in the Blender Transform panel.	1650	350	250	44	blender	BLENDER_B02_PROPERTY
+B03	blender_viewport_object	Select the visible cube object in the center of the Blender viewport.	680	385	245	225	blender	BLENDER_B03_CUSTOM_RENDER
+B04	blender_icon_tool	Select the visible Move tool icon in the Blender toolbar.	5	178	54	52	blender	BLENDER_B04_ICON

@@ -31,7 +31,12 @@ import ui.TutorPanel
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.Paths
+import java.time.Instant
+import java.util.UUID
+import javax.imageio.ImageIO
 import context.ContextProcessor
+import context.CalibrationAttempt
+import context.CalibrationRunKind
 import context.StderrContextLogger
 import context.RegionSelectionController
 import context.VisualContextAcquisition
@@ -73,6 +78,7 @@ fun main() = application {
     var restoreTutorWindowsVisible by remember { mutableStateOf(true) }
     var activeSelectionSession by remember { mutableStateOf<SelectionSession?>(null) }
     var previewPngPath by remember { mutableStateOf<String?>(null) }
+    var previewEvidence by remember { mutableStateOf(ui.ScreenshotPreviewEvidence.pending(null)) }
     var captureStatus by remember { mutableStateOf<String?>(null) }
     var isCaptureInProgress by remember { mutableStateOf(false) }
 
@@ -141,16 +147,54 @@ fun main() = application {
 
         isCaptureInProgress = true
         captureStatus = "Capturing previous external window..."
+        val targetDescription = controller.currentTargetDescription
         try {
             when (val result = CaptureBridge.capturePreviousWindow()) {
                 is CaptureBridge.Result.Success -> {
+                    val capturedAt = Instant.now()
                     previewPngPath = result.pngPath
-                    captureStatus = "Screenshot captured."
+                    previewEvidence = ui.ScreenshotPreviewEvidence.processingFailure(targetDescription)
+                    try {
+                        val image = withContext(Dispatchers.IO) {
+                            ImageIO.read(File(result.pngPath)) ?: error("Captured PNG could not be decoded.")
+                        }
+                        val visualContext = contextProcessor.process(
+                            image = image,
+                            x = 0,
+                            y = 0,
+                            app = null,
+                            regionId = UUID.randomUUID(),
+                            selectedRegion = null,
+                            targetDescription = targetDescription,
+                            calibrationAttempt = CalibrationAttempt(
+                                caseId = "LIVE_${UUID.randomUUID()}",
+                                runKind = CalibrationRunKind.LIVE_FLOW,
+                                capturedAt = capturedAt,
+                                targetDescription = targetDescription,
+                                targetDescriptionSource = targetDescription
+                                    ?.takeIf(String::isNotBlank)
+                                    ?.let { "active_tutor_step_instruction" },
+                                captureMetadata = mapOf(
+                                    "captureSourceMode" to "CAPTURE_BRIDGE_WINDOW",
+                                    "selectedRegionCoordinateSpace" to "NOT_RECORDED"
+                                )
+                            )
+                        )
+                        previewEvidence = ui.ScreenshotPreviewEvidence.from(targetDescription, visualContext)
+                        captureStatus = "Screenshot captured and evidence processed."
+                    } catch (exception: kotlinx.coroutines.CancellationException) {
+                        throw exception
+                    } catch (exception: Exception) {
+                        previewEvidence = ui.ScreenshotPreviewEvidence.pending(targetDescription)
+                        captureStatus = "Screenshot captured; evidence processing failed: ${exception.message ?: "Unexpected error."}"
+                    }
                 }
                 is CaptureBridge.Result.Failure -> {
                     captureStatus = "Capture failed: ${result.diagnostic}"
                 }
             }
+        } catch (exception: kotlinx.coroutines.CancellationException) {
+            throw exception
         } catch (exception: Exception) {
             captureStatus = "Capture failed: ${exception.message ?: "Unexpected error."}"
         } finally {
@@ -237,6 +281,7 @@ fun main() = application {
         }
         ScreenshotPreviewWindow(
             pngPath = previewPngPath!!,
+            evidence = previewEvidence,
             onCloseRequest = {
                 val capturedPngPath = previewPngPath
                 if (capturedPngPath != null) {
@@ -303,6 +348,7 @@ fun main() = application {
                         val oldImage = controller.sessionContext.lastVisualContext?.image
                         if (oldImage !== result.image) oldImage?.flush()
                         controller.recordVisualContext(result.visualContext)
+                        previewEvidence = ui.ScreenshotPreviewEvidence.from(targetDescription, result.visualContext)
                         previewPngPath = withContext(Dispatchers.IO) { FrozenSnapshotRegionCaptureService(lifecycleLogger).persistPreview(result.image).toAbsolutePath().toString() }
                         val appName = session.applicationContext?.applicationName ?: "Unknown application"
                         captureStatus = "Visual context: ${result.visualContext.width} x ${result.visualContext.height}, ${result.visualContext.contentType}, ${result.visualContext.extractedText?.length ?: 0} OCR characters, $appName."

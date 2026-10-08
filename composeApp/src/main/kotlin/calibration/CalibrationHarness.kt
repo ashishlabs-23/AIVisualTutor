@@ -1,12 +1,28 @@
 package calibration
 
 import context.ApplicationContext
+import context.CalibrationAttempt
+import context.CalibrationResultSink
+import context.CalibrationResultStore
+import context.CalibrationRunKind
+import context.CalibrationRunResult
 import context.ContextProcessor
+import context.CalibrationProviderSnapshot
+import context.GroundingProviderAvailability
+import context.LlamaCppGroundingConfiguration
+import context.LlamaCppVisualGroundingProvider
+import context.NoOpCalibrationResultSink
+import context.PerceptionEngine
+import context.PerceptionResult
+import context.PerceptionSource
 import context.TesseractOcrService
+import context.UiType
+import context.VisualGroundingInvocationStatus
 import context.WindowsUiAutomationPerceptionEngine
 import java.awt.Rectangle
 import java.awt.Robot
 import java.io.File
+import java.time.Instant
 import java.util.Base64
 import java.util.concurrent.TimeUnit
 import javax.imageio.ImageIO
@@ -21,6 +37,73 @@ import kotlinx.coroutines.runBlocking
  *   CalibrationHarnessKt <manifest.tsv> <outDir>
  */
 fun main(args: Array<String>) = runBlocking {
+    if (args.firstOrNull() == "--visual-preflight") {
+        require(args.size == 4) { "Usage: --visual-preflight <caseId> <targetDescription> <crop.png>" }
+        require(System.getProperty(CalibrationResultStore.ENABLE_PROPERTY)?.equals("true", true) == true) {
+            "Visual preflight persistence requires explicit calibration mode."
+        }
+        val config = LlamaCppGroundingConfiguration.fromSystemProperties()
+        require(config.enabled && config.executablePath != null && config.modelPath != null && config.mmprojPath != null) {
+            "Visual preflight requires explicit executable, model, and mmproj paths."
+        }
+        val provider = LlamaCppVisualGroundingProvider(configuration = config)
+        val preflight = provider.preflight()
+        val cropPath = File(args[3]).toPath().toAbsolutePath().normalize()
+        val image = ImageIO.read(cropPath.toFile()) ?: error("Preflight crop is not a readable image.")
+        val invocation = when (preflight.availability) {
+            GroundingProviderAvailability.NOT_CONFIGURED -> VisualGroundingInvocationStatus.NOT_CONFIGURED
+            GroundingProviderAvailability.UNAVAILABLE -> VisualGroundingInvocationStatus.UNAVAILABLE
+            GroundingProviderAvailability.HOST_BLOCKED -> VisualGroundingInvocationStatus.HOST_BLOCKED
+            GroundingProviderAvailability.FAILURE -> VisualGroundingInvocationStatus.FAILED
+            GroundingProviderAvailability.CANCELLED -> VisualGroundingInvocationStatus.CANCELLED
+            GroundingProviderAvailability.AVAILABLE -> VisualGroundingInvocationStatus.PENDING
+        }
+        val sink = CalibrationResultStore.configuredSink()
+        require(sink is CalibrationResultStore) { "Visual preflight requires the file result store." }
+        sink.persist(
+            CalibrationRunResult(
+                image = image,
+                attempt = CalibrationAttempt(
+                    caseId = args[1],
+                    runKind = CalibrationRunKind.CROP_REPLAY,
+                    capturedAt = null,
+                    targetDescription = args[2],
+                    targetDescriptionSource = "explicit_visual_preflight",
+                    sourceCropPath = cropPath,
+                    captureMetadata = mapOf("visualPreflightOnly" to "true")
+                ),
+                selectedRegion = Rectangle(0, 0, image.width, image.height),
+                applicationContext = null,
+                visualContext = null,
+                processingStartedNanos = System.nanoTime(),
+                providerSnapshot = CalibrationProviderSnapshot(
+                    visualGroundingStatus = preflight.availability,
+                    visualGroundingInvocation = invocation,
+                    visualGroundingPreflight = preflight,
+                    visualGroundingInvocationRequested = true,
+                    visualGroundingInvocationAttempted = false
+                )
+            )
+        )
+        println("Visual preflight persisted: provider=${provider.providerId} status=${preflight.availability} outputRoot=${System.getProperty(CalibrationResultStore.OUTPUT_PROPERTY) ?: "DEFAULT_LOCAL_APP_DATA"}")
+        return@runBlocking
+    }
+    if (args.firstOrNull() == "--replay-saved") {
+        require(args.size == 4) { "Usage: --replay-saved <manifest.tsv> <crop-dir> <existing-results-dir>" }
+        require(System.getProperty(CalibrationResultStore.ENABLE_PROPERTY)?.equals("true", true) == true) {
+            "Saved-crop replay requires explicit calibration mode."
+        }
+        replaySavedCrops(File(args[1]), File(args[2]), File(args[3]), CalibrationResultStore.configuredSink())
+        return@runBlocking
+    }
+    if (args.firstOrNull() == "--legacy-import") {
+        require(args.size == 2) { "Usage: --legacy-import <legacy-results-dir>" }
+        require(System.getProperty(CalibrationResultStore.ENABLE_PROPERTY)?.equals("true", true) == true) {
+            "Legacy import requires explicit calibration mode."
+        }
+        importLegacyResults(File(args[1]), CalibrationResultStore.configuredSink())
+        return@runBlocking
+    }
     require(args.size >= 2) { "Usage: CalibrationHarnessKt <manifest.tsv> <outDir>" }
     val manifest = File(args[0])
     val outDir = File(args[1]).also { it.mkdirs() }
@@ -43,6 +126,7 @@ fun main(args: Array<String>) = runBlocking {
         val instructionFlag = cols[8]
         println("CASE $caseId ...")
         val image = robot.createScreenCapture(region)
+        val capturedAt = Instant.now()
         val cropPath = File(outDir, "${caseId}_crop.png")
         check(ImageIO.write(image, "png", cropPath)) { "Failed to write $cropPath" }
         val app = processHint?.let { hint ->
@@ -56,7 +140,14 @@ fun main(args: Array<String>) = runBlocking {
             app = app,
             selectedRegion = region,
             targetDescription = targetDescription,
-            requiresVisualGrounding = false
+            requiresVisualGrounding = false,
+            calibrationAttempt = CalibrationAttempt(
+                caseId = caseId,
+                runKind = CalibrationRunKind.LIVE_FLOW,
+                capturedAt = capturedAt,
+                targetDescription = targetDescription,
+                targetDescriptionSource = "manifest.targetDescription"
+            )
         )
         val ev = visual.evidenceEvaluation
         File(outDir, "${caseId}_result.txt").writeText(
@@ -98,6 +189,121 @@ fun main(args: Array<String>) = runBlocking {
     File(outDir, "SUMMARY.tsv").writeText(summary.toString())
     println("WROTE ${File(outDir, "SUMMARY.tsv").absolutePath}")
 }
+
+private suspend fun replaySavedCrops(
+    manifest: File,
+    cropDirectory: File,
+    existingResultsDirectory: File,
+    sink: CalibrationResultSink
+) {
+    require(sink !== NoOpCalibrationResultSink) { "Calibration sink is disabled." }
+    val lines = manifest.readLines().filter { it.isNotBlank() && !it.startsWith("caseId") }
+    val processor = ContextProcessor(
+        ocr = TesseractOcrService(),
+        perceptionEngine = PerceptionEngine { request ->
+            PerceptionResult(
+                applicationName = request.applicationContext?.applicationName,
+                selectedObject = null,
+                visibleText = null,
+                uiType = UiType.UNKNOWN,
+                boundingRectangle = null,
+                confidence = null,
+                source = PerceptionSource.UNKNOWN,
+                metadata = mapOf("status" to "not_run")
+            )
+        },
+        calibrationResultSink = sink
+    )
+    for (line in lines) {
+        val cols = line.split('\t')
+        require(cols.size >= 9) { "Bad manifest row." }
+        val caseId = cols[0]
+        val target = cols[2].takeIf { it.isNotBlank() && it != "-" }
+        val region = Rectangle(cols[3].toInt(), cols[4].toInt(), cols[5].toInt(), cols[6].toInt())
+        val priorResult = File(existingResultsDirectory, "${caseId}_result.txt")
+        val priorProbe = File(existingResultsDirectory, "${caseId}_provider_probe.txt")
+        val savedFields = when {
+            priorProbe.isFile -> readFields(priorProbe)
+            priorResult.isFile -> readFields(priorResult)
+            else -> emptyMap()
+        }
+        val crop = sequenceOf(
+            File(cropDirectory, "${caseId}_crop.png"),
+            File(cropDirectory, "crops/${caseId}_crop.png")
+        ).firstOrNull(File::isFile) ?: error("Saved crop missing for $caseId.")
+        val image = ImageIO.read(crop) ?: error("Saved crop is not a readable PNG for $caseId.")
+        val applicationName = savedFields["appProcess"] ?: savedFields["source_application"]
+        val app = applicationName?.let {
+            ApplicationContext(
+                applicationName = it,
+                processName = it,
+                windowTitle = savedFields["appTitle"] ?: savedFields["window_title"],
+                pid = savedFields["appPid"]?.toLongOrNull() ?: savedFields["pid"]?.toLongOrNull(),
+                windowHandle = savedFields["appHwnd"]?.toLongOrNull() ?: savedFields["hwnd"]?.toLongOrNull()
+            )
+        }
+        processor.process(
+            image = image,
+            x = region.x,
+            y = region.y,
+            app = app,
+            selectedRegion = region,
+            targetDescription = target,
+            calibrationAttempt = CalibrationAttempt(
+                caseId = caseId,
+                runKind = CalibrationRunKind.CROP_REPLAY,
+                capturedAt = null,
+                targetDescription = target,
+                targetDescriptionSource = "manifest.targetDescription",
+                sourceCropPath = crop.toPath()
+            )
+        )
+    }
+}
+
+private fun importLegacyResults(directory: File, sink: CalibrationResultSink) {
+    val store = sink as? CalibrationResultStore ?: error("Legacy import requires the file result store.")
+    for (index in 1..18) {
+        val caseId = "C%02d".format(index)
+        val crop = File(directory, "${caseId}_crop.png")
+        val resultFile = File(directory, "${caseId}_result.txt")
+        require(crop.isFile && resultFile.isFile) { "Legacy artifacts missing for $caseId." }
+        val fields = readFields(resultFile).filterKeys { !it.startsWith("groundTruth", ignoreCase = true) }
+        val image = ImageIO.read(crop) ?: error("Legacy crop is not a readable PNG for $caseId.")
+        val region = fields["region"]?.split(',')?.mapNotNull(String::toIntOrNull)
+            ?.takeIf { it.size == 4 }?.let { Rectangle(it[0], it[1], it[2], it[3]) }
+        val appName = fields["appProcess"]
+        val app = appName?.let {
+            ApplicationContext(
+                it, it, fields["appTitle"], fields["appPid"]?.toLongOrNull(),
+                windowHandle = fields["appHwnd"]?.toLongOrNull()
+            )
+        }
+        store.persist(
+            CalibrationRunResult(
+                image = image,
+                attempt = CalibrationAttempt(
+                    caseId = caseId,
+                    runKind = CalibrationRunKind.LEGACY_IMPORT,
+                    capturedAt = null,
+                    targetDescription = fields["targetDescription"],
+                    targetDescriptionSource = if (fields.containsKey("targetDescription")) "legacy_result_file" else null
+                ),
+                selectedRegion = region,
+                applicationContext = app,
+                visualContext = null,
+                processingStartedNanos = 0,
+                legacyFields = fields,
+                legacyCropPath = crop.toPath()
+            )
+        )
+    }
+}
+
+private fun readFields(file: File): Map<String, String> = file.readLines().mapNotNull { line ->
+    val split = line.indexOf('=')
+    if (split <= 0) null else line.substring(0, split) to line.substring(split + 1)
+}.toMap()
 
 private fun findWindowByProcessName(processName: String, titleContains: String? = null): ApplicationContext? {
     val titleNeedle = titleContains.orEmpty()

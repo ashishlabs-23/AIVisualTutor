@@ -1,0 +1,2 @@
+caseId	category	targetDescription	x	y	w	h	processHint	instructionFlag
+B01	blender_structured_text	Select the visible Cube object label in the Blender Outliner.	1600	128	180	45	blender	BLENDER_B01_FINAL_AUDIT_RERUN

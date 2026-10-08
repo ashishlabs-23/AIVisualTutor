@@ -1,6 +1,7 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.gradle.api.tasks.Exec
 import org.gradle.api.tasks.Sync
+import org.gradle.jvm.toolchain.JavaLanguageVersion
 
 plugins {
     kotlin("jvm")
@@ -86,10 +87,56 @@ tasks.configureEach {
     }
 }
 
+val projectJavaLauncher = javaToolchains.launcherFor {
+    languageVersion.set(JavaLanguageVersion.of(17))
+}
+
+tasks.withType<JavaExec>().configureEach {
+    javaLauncher.set(projectJavaLauncher)
+    if (project.findProperty("aivt.calibration.enabled")?.toString()?.equals("true", ignoreCase = true) == true) {
+        systemProperty("aivt.calibration.enabled", "true")
+        project.findProperty("aivt.calibration.outputDir")?.toString()?.let {
+            systemProperty("aivt.calibration.outputDir", it)
+        }
+    }
+    listOf(
+        "aivt.visual.enabled",
+        "aivt.visual.executable",
+        "aivt.visual.model",
+        "aivt.visual.mmproj",
+        "aivt.visual.timeoutMillis",
+        "aivt.visual.runtimeVersion"
+    ).forEach { propertyName ->
+        project.findProperty(propertyName)?.toString()?.let {
+            systemProperty(propertyName, it)
+        }
+    }
+}
+
 // CALIBRATION_HARNESS_TASK
 tasks.register<JavaExec>("runCalibrationHarness") {
     group = "research"
     classpath = sourceSets["main"].runtimeClasspath
     mainClass.set("calibration.CalibrationHarnessKt")
-    if (project.hasProperty("calibManifest")) args(project.property("calibManifest"), project.property("calibOut"))
+    when (project.findProperty("aivt.calibration.mode")?.toString()) {
+        "visual-preflight" -> {
+            args(
+                "--visual-preflight",
+                project.property("aivt.visualPreflight.caseId"),
+                project.property("aivt.visualPreflight.targetDescription"),
+                project.property("aivt.visualPreflight.crop")
+            )
+        }
+        "replay-saved" -> {
+            args(
+                "--replay-saved",
+                project.property("aivt.calibration.manifest"),
+                project.property("aivt.calibration.cropDir"),
+                project.property("aivt.calibration.existingResultsDir")
+            )
+        }
+        else -> if (project.hasProperty("calibManifest")) {
+            args(project.property("calibManifest"), project.property("calibOut"))
+        }
+    }
 }

@@ -7,6 +7,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import selection.FrozenScreenSnapshot
 import java.util.UUID
+import java.time.Instant
 
 data class SelectionSession(
     val regionId: UUID,
@@ -45,6 +46,7 @@ class VisualContextAcquisition(
             val captureStarted = System.nanoTime()
             controller.log(LifecycleEvent.CAPTURE_STARTED, mapOf("regionId" to session.regionId, "state" to "CAPTURING"))
             val image = withContext(Dispatchers.IO) { capture.captureFrozenRegion(snapshot, bounds, session.regionId) }
+            val capturedAt = Instant.now()
             val metadata = mapOf(
                 "captureSourceMode" to "FROZEN_SNAPSHOT",
                 "captureMillis" to ((System.nanoTime() - captureStarted) / 1_000_000).toString(),
@@ -54,7 +56,15 @@ class VisualContextAcquisition(
             )
             val visual = processor.process(
                 image, bounds.x, bounds.y, session.applicationContext,
-                session.regionId, metadata, bounds, targetDescription
+                session.regionId, metadata, bounds, targetDescription,
+                calibrationAttempt = CalibrationAttempt(
+                    caseId = "LIVE_${session.regionId}",
+                    runKind = CalibrationRunKind.LIVE_FLOW,
+                    capturedAt = capturedAt,
+                    targetDescription = targetDescription,
+                    targetDescriptionSource = targetDescription?.takeIf(String::isNotBlank)?.let { "active_tutor_step_instruction" },
+                    captureMetadata = metadata
+                )
             )
             check(controller.complete(session.regionId, visual)) { "Selection session ended while processing." }
             return CompletedVisualCapture(image, visual)

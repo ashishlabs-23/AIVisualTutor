@@ -14,3 +14,4 @@ wgc-bridge/WgcSharp/**/obj/
 *.gguf
 **/models/
 **/.cache/
+docs/calibration-runs/

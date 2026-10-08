@@ -13,6 +13,7 @@ enum class VisualGroundingInvocationStatus {
     NOT_INVOKED_MISSING_TARGET,
     UNAVAILABLE,
     NOT_CONFIGURED,
+    HOST_BLOCKED,
     INVOKED,
     RETURNED_EVIDENCE,
     FAILED,
@@ -45,7 +46,10 @@ data class EvidenceEvaluationResult(
     val visualGroundingDiagnostic: String?,
     val uiAutomationEvidence: PerceptionResult?,
     val ocrEvidence: OcrResult?,
-    val visualGroundingEvidence: VisualGroundingResult?
+    val visualGroundingEvidence: VisualGroundingResult?,
+    val visualGroundingPreflight: VisualGroundingPreflight? = null,
+    val visualGroundingInvocationRequested: Boolean = false,
+    val visualGroundingInvocationAttempted: Boolean = false
 )
 
 /** Deterministic policy. Source confidences remain separate and are never combined. */
@@ -113,6 +117,8 @@ class EvidenceEvaluator {
                 result(input, EvidenceDecision.ABSTAIN, "visual_provider_unavailable", visualAvailability)
             GroundingProviderAvailability.NOT_CONFIGURED ->
                 result(input, EvidenceDecision.ABSTAIN, "visual_provider_not_configured", visualAvailability)
+            GroundingProviderAvailability.HOST_BLOCKED ->
+                result(input, EvidenceDecision.ABSTAIN, "visual_provider_host_blocked", visualAvailability)
             GroundingProviderAvailability.FAILURE ->
                 result(input, EvidenceDecision.ABSTAIN, "visual_provider_failure", visualAvailability)
             GroundingProviderAvailability.CANCELLED ->
@@ -215,7 +221,7 @@ class EvidenceEvaluator {
 
 /** Executes at most one configured visual provider call for one target evaluation. */
 class EvidenceEvaluationCoordinator(
-    private val provider: VisualGroundingProvider = NotConfiguredVisualGroundingProvider(),
+    private val provider: VisualGroundingProvider = defaultVisualGroundingProvider(),
     private val evaluator: EvidenceEvaluator = EvidenceEvaluator()
 ) {
     suspend fun evaluate(
@@ -226,10 +232,12 @@ class EvidenceEvaluationCoordinator(
         uiAutomationStatus: EvidenceStatus,
         ocrEvidence: OcrResult?,
         ocrStatus: EvidenceStatus,
-        requiresVisualGrounding: Boolean = false
+        requiresVisualGrounding: Boolean = false,
+        onVisualInvocationState: (VisualGroundingPreflight, Boolean, Boolean) -> Unit = { _, _, _ -> }
     ): EvidenceEvaluationResult {
-        val providerAvailability = provider.availability
-        val providerDiagnostic = provider.availabilityDiagnostic
+        val preflight = provider.preflight()
+        val providerAvailability = preflight.availability
+        val providerDiagnostic = preflight.diagnostic
         val providerId = provider.providerId
         val initialInput = EvidenceEvaluationInput(
             targetDescription = targetDescription,
@@ -244,18 +252,22 @@ class EvidenceEvaluationCoordinator(
             screenshotHeight = screenshot.height
         )
         val initial = evaluator.evaluate(initialInput)
-        val target = targetDescription?.trim()?.takeIf(String::isNotEmpty)
+        val target = targetDescription?.takeUnless(String::isBlank)
             ?: return initial.copy(
-                visualGroundingInvocation = VisualGroundingInvocationStatus.NOT_INVOKED_MISSING_TARGET
-            )
+                visualGroundingInvocation = VisualGroundingInvocationStatus.NOT_INVOKED_MISSING_TARGET,
+                visualGroundingPreflight = preflight
+            ).also { onVisualInvocationState(preflight, false, false) }
 
         val shouldInvoke = initial.decision != EvidenceDecision.ACCEPT
-        if (!shouldInvoke) return initial
+        if (!shouldInvoke) return initial.copy(visualGroundingPreflight = preflight)
+            .also { onVisualInvocationState(preflight, false, false) }
 
         if (providerAvailability != GroundingProviderAvailability.AVAILABLE) {
+            onVisualInvocationState(preflight, true, false)
             val invocation = when (providerAvailability) {
                 GroundingProviderAvailability.UNAVAILABLE -> VisualGroundingInvocationStatus.UNAVAILABLE
                 GroundingProviderAvailability.NOT_CONFIGURED -> VisualGroundingInvocationStatus.NOT_CONFIGURED
+                GroundingProviderAvailability.HOST_BLOCKED -> VisualGroundingInvocationStatus.HOST_BLOCKED
                 GroundingProviderAvailability.FAILURE -> VisualGroundingInvocationStatus.FAILED
                 GroundingProviderAvailability.CANCELLED -> VisualGroundingInvocationStatus.CANCELLED
                 GroundingProviderAvailability.AVAILABLE -> error("unreachable")
@@ -267,10 +279,13 @@ class EvidenceEvaluationCoordinator(
             ))
             return final.copy(
                 visualGroundingInvocation = invocation,
-                visualGroundingProviderId = providerId
+                visualGroundingProviderId = providerId,
+                visualGroundingPreflight = preflight,
+                visualGroundingInvocationRequested = true
             )
         }
 
+        onVisualInvocationState(preflight, true, true)
         val visualResult = try {
             provider.ground(VisualGroundingRequest(
                 screenshot = screenshot,
@@ -302,9 +317,16 @@ class EvidenceEvaluationCoordinator(
                 else VisualGroundingInvocationStatus.INVOKED
             GroundingProviderAvailability.UNAVAILABLE -> VisualGroundingInvocationStatus.UNAVAILABLE
             GroundingProviderAvailability.NOT_CONFIGURED -> VisualGroundingInvocationStatus.NOT_CONFIGURED
+            GroundingProviderAvailability.HOST_BLOCKED -> VisualGroundingInvocationStatus.HOST_BLOCKED
             GroundingProviderAvailability.FAILURE -> VisualGroundingInvocationStatus.FAILED
             GroundingProviderAvailability.CANCELLED -> VisualGroundingInvocationStatus.CANCELLED
         }
-        return final.copy(visualGroundingInvocation = invocation, visualGroundingProviderId = visualResult.providerId)
+        return final.copy(
+            visualGroundingInvocation = invocation,
+            visualGroundingProviderId = visualResult.providerId,
+            visualGroundingPreflight = preflight,
+            visualGroundingInvocationRequested = true,
+            visualGroundingInvocationAttempted = true
+        )
     }
 }

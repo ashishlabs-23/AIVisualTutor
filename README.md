@@ -13,6 +13,13 @@ AI Visual Tutor is a Windows desktop application built with Kotlin, Compose Mult
 - Live multi-provider conflict resolution remains unverified. The independent comparison dataset has only two cases, so no comparative research-accuracy claim is established.
 - See [`docs/PHASE_5_RUNTIME_AUDIT_2026-10-09.md`](docs/PHASE_5_RUNTIME_AUDIT_2026-10-09.md) and [`docs/PHASE_5.md`](docs/PHASE_5.md) for evidence, commands, and limitations.
 
+**Phase 5 limitations and remaining work**
+
+- Fusion weights and thresholds are deterministic heuristics, not statistically calibrated probabilities. Runtime accuracy and improvement over individual modes have not been established.
+- Run UGround on hardware that meets the existing memory guard, then independently validate model output and coordinates; do not weaken or disable the guard to force a run.
+- Expand the independently reviewed evaluation set beyond two cases, covering positive and absent targets, different controls/apps, and coordinate transforms. Report accuracy, coverage, false acceptance, abstention, and latency without overgeneralizing from small samples.
+- Exercise genuine live provider disagreement and mixed-DPI/multi-monitor scenarios. Investigate the documented UIA capture/replay discrepancy and keep any unresolved outcomes classified as unverified.
+
 ### Phase 6: Blender state verification
 
 Phase 6 adds a user-triggered verification workflow to the tutor panel when Blender is selected. The user chooses an operation and target, captures a baseline from Blender, performs the action in Blender, and clicks **I completed it** to capture and evaluate the resulting state. Supported operations are create, delete, rename, select, and modify (object location).
@@ -21,6 +28,13 @@ Phase 6 adds a user-triggered verification workflow to the tutor panel when Blen
 - The deterministic verifier correlates baseline and post-action snapshots to one Blender session, returns `SUCCESS`, `FAILURE`, or `UNCERTAIN`, and saves JSON results under `%LOCALAPPDATA%\AIVisualTutor\verification-runs`.
 - Automated tests and an isolated Blender snapshot integration test pass. **Activation in the user's existing desktop Blender session and a full tutor-UI user-action run are not verified.** The UI does not infer expected operations from tutorial text.
 - See [`docs/PHASE_6.md`](docs/PHASE_6.md) for setup, interfaces, tests, and remaining validation.
+
+**Phase 6 limitations and remaining work**
+
+- Enable the opt-in adapter in the existing desktop Blender session and confirm a real snapshot from that process. Then validate a disposable user-action flow through the tutor UI, including baseline capture, post-action result, and persisted JSON; do not claim this end-to-end path until it is observed.
+- Expected operations are entered explicitly by the user rather than derived from tutorial instructions. Verification is user-triggered, takes a snapshot when requested, and is Blender-only; it is not continuous monitoring or automatic action execution.
+- The adapter is read-only and currently exposes object identity/name/type, selection, location, scene, mode, and session metadata. `MODIFY` verification is limited to captured properties such as location; other application state and Blender properties are not covered.
+- Multi-provider evidence fusion and result replay UI are not part of this integration. Consider bounded retry/polling and broader failure/cancellation/persistence tests before expanding the workflow.
 
 ## Phase 4 capabilities and evidence boundary
 

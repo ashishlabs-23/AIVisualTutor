@@ -43,9 +43,15 @@ import context.VisualContextAcquisition
 import context.WindowsApplicationContextProvider
 import context.WindowsWindowFocusManager
 import context.SelectionSession
+import context.GroundingExperimentRunner
+import context.GroundingMode
+import context.GroundingRequest
+import context.ScreenToScreenshotTransform
+import context.ApplicationContext
 import models.HighlightRegion
 import bridge.WgcScreenCaptureService
 import bridge.FrozenSnapshotRegionCaptureService
+import java.awt.Rectangle
 
 /**
  * Application entry point.
@@ -66,6 +72,7 @@ fun main() = application {
     val lifecycleLogger = remember { StderrContextLogger() }
     val globalCaptureHotkey = remember { GlobalCaptureHotkey(logger = lifecycleLogger) }
     val contextProcessor = remember { ContextProcessor(logger = lifecycleLogger) }
+    val groundingExperimentRunner = remember { GroundingExperimentRunner() }
     val regionCapture = remember { WgcScreenCaptureService(lifecycleLogger) }
     val selectionController = remember { RegionSelectionController(lifecycleLogger) }
     val acquisition = remember { VisualContextAcquisition(selectionController, WindowsApplicationContextProvider(), regionCapture, contextProcessor, WindowsWindowFocusManager()) }
@@ -81,6 +88,9 @@ fun main() = application {
     var previewEvidence by remember { mutableStateOf(ui.ScreenshotPreviewEvidence.pending(null)) }
     var captureStatus by remember { mutableStateOf<String?>(null) }
     var isCaptureInProgress by remember { mutableStateOf(false) }
+    var groundingApplicationContext by remember { mutableStateOf<ApplicationContext?>(null) }
+    var groundingDesktopRegion by remember { mutableStateOf<Rectangle?>(null) }
+    var previewExperimentCaseId by remember { mutableStateOf("PREVIEW_${UUID.randomUUID()}") }
 
     suspend fun openRegionSelector() {
         if (isRegionSelectorOpen || selectorSnapshot != null) return
@@ -148,9 +158,23 @@ fun main() = application {
         isCaptureInProgress = true
         captureStatus = "Capturing previous external window..."
         val targetDescription = controller.currentTargetDescription
+        groundingApplicationContext = null
+        groundingDesktopRegion = null
+        previewExperimentCaseId = "PREVIEW_${UUID.randomUUID()}"
         try {
             when (val result = CaptureBridge.capturePreviousWindow()) {
                 is CaptureBridge.Result.Success -> {
+                    val capturedWindow = result.capturedWindow
+                    groundingApplicationContext = capturedWindow?.let {
+                        ApplicationContext(
+                            applicationName = it.processName,
+                            processName = it.processName,
+                            pid = it.processId,
+                            windowBounds = it.bounds,
+                            windowHandle = it.windowHandle
+                        )
+                    }
+                    groundingDesktopRegion = capturedWindow?.bounds
                     val capturedAt = Instant.now()
                     previewPngPath = result.pngPath
                     previewEvidence = ui.ScreenshotPreviewEvidence.processingFailure(targetDescription)
@@ -282,6 +306,30 @@ fun main() = application {
         ScreenshotPreviewWindow(
             pngPath = previewPngPath!!,
             evidence = previewEvidence,
+            onRunGrounding = { mode, targetDescription ->
+                val image = withContext(Dispatchers.IO) {
+                    ImageIO.read(File(previewPngPath!!)) ?: error("Preview screenshot could not be decoded.")
+                }
+                val region = groundingDesktopRegion
+                val physicalDisplayCoordinates = runCatching {
+                    val devices = java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment().screenDevices
+                    devices.isNotEmpty() && devices.all { device ->
+                        val transform = device.defaultConfiguration.defaultTransform
+                        transform.scaleX == 1.0 && transform.scaleY == 1.0 && transform.shearX == 0.0 && transform.shearY == 0.0
+                    }
+                }.getOrDefault(false)
+                val mapping = region?.takeIf { physicalDisplayCoordinates && it.width > 0 && it.height > 0 }?.let {
+                    ScreenToScreenshotTransform(it.x.toDouble(), it.y.toDouble(), image.width.toDouble() / it.width, image.height.toDouble() / it.height)
+                }
+                try {
+                    groundingExperimentRunner.run(GroundingRequest(
+                        screenshot = image, targetDescription = targetDescription, mode = mode,
+                        applicationContext = groundingApplicationContext, selectedRegionOnDesktop = region,
+                        screenToScreenshot = mapping, screenshotReference = "current-preview",
+                        experimentId = "PHASE5_PREVIEW", caseId = previewExperimentCaseId
+                    ))
+                } finally { image.flush() }
+            },
             onCloseRequest = {
                 val capturedPngPath = previewPngPath
                 if (capturedPngPath != null) {
@@ -336,6 +384,9 @@ fun main() = application {
                 isRegionSelectorOpen = false
                 captureStatus = "Region captured; processing visual context..."
                 val targetDescription = controller.currentTargetDescription
+                groundingApplicationContext = activeSelectionSession?.applicationContext
+                groundingDesktopRegion = desktopBounds
+                previewExperimentCaseId = "PREVIEW_${activeSelectionSession?.regionId ?: UUID.randomUUID()}"
                 previewScope.launch {
                     val session = activeSelectionSession
                     val frozenSnapshot = selectorSnapshot

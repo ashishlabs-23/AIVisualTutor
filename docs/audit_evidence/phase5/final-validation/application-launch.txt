@@ -1,0 +1,8 @@
+Command: .\gradlew.bat :composeApp:run --console=plain
+Result: BUILD SUCCESSFUL; the Compose desktop process started and registered both global hotkeys.
+Runtime event: HOTKEY_REGISTERED {registeredIds=both}
+Window title: AI Visual Tutor
+Window bounds: 750,260,420,560
+Window responsiveness: Responding=True
+Shutdown: Alt+F4 invoked the normal window close handler; the Java application process exited and the Gradle run completed successfully.
+Screenshot: application-main-window-foreground.png

@@ -127,6 +127,7 @@ tasks.register<JavaExec>("runCalibrationHarness") {
                 project.property("aivt.visualPreflight.crop")
             )
         }
+
         "replay-saved" -> {
             args(
                 "--replay-saved",
@@ -138,5 +139,19 @@ tasks.register<JavaExec>("runCalibrationHarness") {
         else -> if (project.hasProperty("calibManifest")) {
             args(project.property("calibManifest"), project.property("calibOut"))
         }
+    }
+}
+
+tasks.register<JavaExec>("runPhase5Evaluation") {
+    group = "research"
+    description = "Run every Phase 5 grounding mode on the independently annotated CSV cases."
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("context.Phase5EvaluationKt")
+    doFirst {
+        val annotations = project.findProperty("aivt.phase5.annotations")?.toString()
+            ?: throw GradleException("Set -Paivt.phase5.annotations=<dataset.csv>.")
+        val report = project.findProperty("aivt.phase5.report")?.toString()
+            ?: throw GradleException("Set -Paivt.phase5.report=<report.json>.")
+        setArgs(listOf("--annotations", annotations, report))
     }
 }

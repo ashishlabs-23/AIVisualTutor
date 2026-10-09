@@ -99,6 +99,9 @@ class LlamaCppVisualGroundingProvider(
 
     override fun preflight(): VisualGroundingPreflight {
         val availableMemory = memoryProbe.availableBytes()
+        val modelBytes = configuration.modelPath?.let(::regularFileSize)
+        val mmprojBytes = configuration.mmprojPath?.let(::regularFileSize)
+        val jvmMemory = Runtime.getRuntime()
         val metadata = mapOf(
             "provider" to providerId,
             "model" to LlamaCppGroundingConfiguration.MODEL_ID,
@@ -110,6 +113,14 @@ class LlamaCppVisualGroundingProvider(
             "configured" to configuration.enabled.toString(),
             "availableMemoryBytes" to (availableMemory?.toString() ?: "NOT_RECORDED"),
             "requiredSafetyMemoryBytes" to MINIMUM_AVAILABLE_MEMORY_BYTES.toString(),
+            "modelFileBytes" to (modelBytes?.toString() ?: "NOT_RECORDED"),
+            "mmprojFileBytes" to (mmprojBytes?.toString() ?: "NOT_RECORDED"),
+            "combinedArtifactBytes" to if (modelBytes != null && mmprojBytes != null) (modelBytes + mmprojBytes).toString() else "NOT_RECORDED",
+            "availableMemoryProbe" to "OPERATING_SYSTEM_AVAILABLE_PHYSICAL_MEMORY",
+            "gpuMemoryBytes" to "NOT_PROBED",
+            "inferenceBackend" to if (runner.requiresHostMemoryGuard) "CPU_ONLY" else "CUSTOM_RUNNER",
+            "jvmMaxMemoryBytes" to jvmMemory.maxMemory().toString(),
+            "jvmCommittedMemoryBytes" to jvmMemory.totalMemory().toString(),
             "guardDecision" to when {
                 !runner.requiresHostMemoryGuard -> "NOT_APPLICABLE_TO_TEST_RUNNER"
                 availableMemory == null -> "UNVERIFIED"
@@ -281,6 +292,9 @@ class LlamaCppVisualGroundingProvider(
 
     private fun runtimeIdentity() =
         "${configuration.executablePath?.toString() ?: "llama-mtmd-cli"} (${configuration.runtimeVersion})"
+
+    private fun regularFileSize(path: Path): Long? =
+        if (Files.isRegularFile(path)) Files.size(path) else null
 
     private fun failureResult(
         diagnostic: String,

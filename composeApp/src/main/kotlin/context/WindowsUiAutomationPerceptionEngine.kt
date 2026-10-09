@@ -28,6 +28,45 @@ class WindowsUiAutomationPerceptionEngine(
     private val isWindows: () -> Boolean = { System.getProperty("os.name").startsWith("Windows", ignoreCase = true) },
     private val coordinatesArePhysical: () -> Boolean = ::allAwtDisplaysUsePhysicalCoordinates
 ) : PerceptionEngine {
+    /** Returns every intersecting candidate so target matching can occur after evidence collection. */
+    suspend fun perceiveCandidates(request: PerceptionRequest): List<PerceptionResult> = withContext(Dispatchers.IO) {
+        val app = request.applicationContext
+        val metadata = mutableMapOf(
+            "provider" to "Windows UI Automation",
+            "selectedRegion" to rectangleSummary(request.selectedRegion),
+            "windowHandle" to app?.windowHandle?.toString().orEmpty(),
+            "windowBounds" to app?.windowBounds?.let(::rectangleSummary).orEmpty()
+        )
+        if (!isWindows()) return@withContext listOf(emptyResult(app, "unsupported_platform", metadata))
+        val hwnd = app?.windowHandle?.takeIf { it != 0L }
+            ?: return@withContext listOf(emptyResult(app, "missing_window_handle", metadata))
+        if (!coordinatesArePhysical()) return@withContext listOf(emptyResult(app, "coordinate_mapping_unsupported", metadata))
+        val candidates = try { client.descendants(hwnd) }
+        catch (cancel: CancellationException) { throw cancel }
+        catch (error: Exception) {
+            metadata["diagnostic"] = (error.message ?: error.javaClass.simpleName).replace(Regex("[\\r\\n|]"), " ").take(100)
+            return@withContext listOf(emptyResult(app, "uia_query_failed", metadata))
+        }
+        val ranked = rankUiAutomationCandidates(candidates, request.selectedRegion)
+        metadata["candidateCount"] = candidates.size.toString()
+        metadata["intersectingCount"] = ranked.size.toString()
+        metadata["candidateBounds"] = candidates.take(MAX_DIAGNOSTIC_CANDIDATES).joinToString(";") { candidate ->
+            "${candidate.controlTypeId}:${candidate.bounds?.let(::rectangleSummary) ?: "NO_BOUNDS"}:${candidate.isEnabled}:${candidate.isOffscreen}"
+        }
+        if (ranked.isEmpty()) return@withContext listOf(emptyResult(app, "no_intersecting_element", metadata))
+        ranked.map { candidate ->
+            val type = mapControlType(candidate.controlTypeId)
+            PerceptionResult(
+                app?.applicationName, candidate.name?.takeIf(String::isNotBlank), candidate.value?.takeIf(String::isNotBlank),
+                type, candidate.bounds, 1.0f, PerceptionSource.UI_AUTOMATION,
+                metadata + mapOf("automationId" to (candidate.automationId ?: ""), "controlTypeId" to candidate.controlTypeId.toString(),
+                    "isEnabled" to (candidate.isEnabled?.toString() ?: "UNKNOWN"),
+                    "isOffscreen" to (candidate.isOffscreen?.toString() ?: "UNKNOWN"),
+                    "coordinateSpace" to "PHYSICAL_DESKTOP_SCREEN")
+            )
+        }
+    }
+
     override suspend fun perceive(request: PerceptionRequest): PerceptionResult = withContext(Dispatchers.IO) {
         val app = request.applicationContext
         val baseMetadata = mutableMapOf("provider" to "Windows UI Automation")
@@ -80,6 +119,12 @@ class WindowsUiAutomationPerceptionEngine(
         source = PerceptionSource.UI_AUTOMATION,
         metadata = metadata + ("status" to reason)
     )
+
+    private companion object {
+        const val MAX_DIAGNOSTIC_CANDIDATES = 32
+
+        fun rectangleSummary(rectangle: Rectangle) = "${rectangle.x},${rectangle.y},${rectangle.width},${rectangle.height}"
+    }
 }
 
 private fun allAwtDisplaysUsePhysicalCoordinates(): Boolean = try {
@@ -156,7 +201,7 @@ class PowerShellUiAutomationClient(private val timeoutMillis: Long = 5_000) : Ui
               Add-Type -AssemblyName UIAutomationTypes
               ${'$'}root = [System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]::new([long]${windowHandle}))
               if (${'$'}null -eq ${'$'}root) { [Console]::Error.WriteLine('invalid_hwnd'); exit 2 }
-              ${'$'}items = @(${'$'}root) + @(${'$'}root.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition))
+              ${'$'}items = @(${'$'}root.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition))
               foreach (${'$'}item in ${'$'}items) {
                   ${'$'}r = ${'$'}item.Current.BoundingRectangle
                   # Offscreen elements expose Rect.Empty (non-finite coordinates). Casting those to Int32 aborts the whole tree.

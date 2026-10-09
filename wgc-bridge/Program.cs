@@ -1,6 +1,8 @@
 using System.Drawing.Imaging;
+using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.InteropServices;
+using System.Text;
 using Microsoft.Extensions.Logging;
 using WgcSharp;
 
@@ -84,6 +86,21 @@ internal static class Program
             Console.Error.WriteLine(
                 $"Capturing {(usePreviousWindow ? "previous eligible" : "foreground")} HWND " +
                 $"0x{targetHwnd.ToInt64():X} (PID {targetPid}).");
+            if (NativeMethods.GetWindowRect(targetHwnd, out var targetBounds) &&
+                targetBounds.Right > targetBounds.Left && targetBounds.Bottom > targetBounds.Top)
+            {
+                var processName = Process.GetProcessById((int)targetPid).ProcessName;
+                var encodedProcessName = Convert.ToBase64String(Encoding.UTF8.GetBytes(processName));
+                Console.Error.WriteLine(
+                    $"AIVT_CAPTURE_TARGET|{targetHwnd.ToInt64()}|{targetPid}|" +
+                    $"{targetBounds.Left}|{targetBounds.Top}|" +
+                    $"{targetBounds.Right - targetBounds.Left}|{targetBounds.Bottom - targetBounds.Top}|" +
+                    encodedProcessName);
+            }
+            else
+            {
+                Console.Error.WriteLine("AIVT_CAPTURE_TARGET_UNAVAILABLE|window_bounds_unavailable");
+            }
         }
         catch (Exception ex)
         {
@@ -336,6 +353,18 @@ internal static class NativeMethods
 
     [DllImport("user32.dll", ExactSpelling = true)]
     internal static extern bool IsWindowVisible(IntPtr window);
+
+    [DllImport("user32.dll", ExactSpelling = true)]
+    internal static extern bool GetWindowRect(IntPtr window, out RECT rectangle);
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct RECT
+    {
+        internal int Left;
+        internal int Top;
+        internal int Right;
+        internal int Bottom;
+    }
 
     [DllImport("user32.dll", ExactSpelling = true)]
     internal static extern IntPtr GetWindow(IntPtr window, uint command);

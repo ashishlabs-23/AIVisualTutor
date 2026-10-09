@@ -12,7 +12,11 @@ import kotlin.math.floor
 
 object CaptureBridge {
     sealed interface Result {
-        data class Success(val pngPath: String, val exitCode: Int) : Result
+        data class Success(
+            val pngPath: String,
+            val exitCode: Int,
+            val capturedWindow: CapturedWindowMetadata? = null
+        ) : Result
 
         data class Failure(
             val diagnostic: String,
@@ -21,6 +25,13 @@ object CaptureBridge {
             val stderr: String? = null
         ) : Result
     }
+
+    data class CapturedWindowMetadata(
+        val windowHandle: Long,
+        val processId: Long,
+        val processName: String,
+        val bounds: java.awt.Rectangle
+    )
 
     suspend fun capturePreviousWindow(): Result = withContext(Dispatchers.IO) {
         val bridgePath = resolveBridgeExecutable()
@@ -112,7 +123,7 @@ object CaptureBridge {
                 ?.takeIf(::hasPngSignature)
 
             if (exitCode == 0 && validPngPath != null) {
-                Result.Success(validPngPath, exitCode)
+                Result.Success(validPngPath, exitCode, parseCapturedWindow(stderr))
             } else {
                 Result.Failure(
                     diagnostic = buildDiagnosticMessage(exitCode, capturedStdout, stderr),
@@ -208,6 +219,24 @@ object CaptureBridge {
     private fun readStream(stream: InputStream): String {
         val bytes = stream.readBytes()
         return String(bytes, StandardCharsets.UTF_8)
+    }
+
+    internal fun parseCapturedWindow(stderr: String): CapturedWindowMetadata? {
+        val fields = stderr.lineSequence()
+            .lastOrNull { it.startsWith("AIVT_CAPTURE_TARGET|") }
+            ?.split('|')
+            ?: return null
+        if (fields.size != 8) return null
+        val handle = fields[1].toLongOrNull()?.takeIf { it != 0L } ?: return null
+        val processId = fields[2].toLongOrNull()?.takeIf { it > 0L } ?: return null
+        val x = fields[3].toIntOrNull() ?: return null
+        val y = fields[4].toIntOrNull() ?: return null
+        val width = fields[5].toIntOrNull()?.takeIf { it > 0 } ?: return null
+        val height = fields[6].toIntOrNull()?.takeIf { it > 0 } ?: return null
+        val processName = runCatching {
+            String(java.util.Base64.getDecoder().decode(fields[7]), StandardCharsets.UTF_8)
+        }.getOrNull()?.takeIf(String::isNotBlank) ?: return null
+        return CapturedWindowMetadata(handle, processId, processName, java.awt.Rectangle(x, y, width, height))
     }
 
     private fun hasPngSignature(path: String): Boolean = try {

@@ -1,0 +1,3 @@
+caseId,screenshotPath,targetDescription,expectedTargetIdentity,expectedGeometry,x,y,width,height,coordinateSpace,expectedAbsent,notes,windowHandle,pid,applicationName,processName,windowX,windowY,windowWidth,windowHeight,selectedX,selectedY,selectedWidth,selectedHeight,textX,textY,textWidth,textHeight
+unique-continue,unique-button.png,Continue,Continue,BOX,280,228,180,64,SCREENSHOT_PIXELS,false,"Full GUI button outline; inclusive extents x=280..459 and y=228..291. Separate label-ink bounds independently measured at threshold RGB<90.",,,,,,,,,,,,,323,251,94,17
+absent-archive,unique-button.png,Archive,,ABSENT,,,,,SCREENSHOT_PIXELS,true,"Negative target on the identical screenshot; target is visibly absent.",,,,,,,,,,,,,,,,

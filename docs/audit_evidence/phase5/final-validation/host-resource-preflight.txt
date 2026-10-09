@@ -1,0 +1,9 @@
+Captured during final verification on 2026-10-09.
+Total physical memory bytes: 16922779648
+Available physical memory bytes: 825978880
+UGround CPU inference safety threshold bytes: 3629247837
+Display adapter: AMD Radeon R5 430
+Adapter memory bytes: 2147483648
+Configured llama.cpp execution backend: CPU only
+GPU memory probe: NOT_PROBED
+Decision: below the existing safety threshold; real inference was not attempted.

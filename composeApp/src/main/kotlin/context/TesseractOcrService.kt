@@ -1,6 +1,7 @@
 package context
 
 import java.awt.Rectangle
+import java.awt.RenderingHints
 import java.awt.image.BufferedImage
 import java.nio.file.Files
 import java.nio.file.Path
@@ -21,6 +22,8 @@ class TesseractOcrService(
     private val tessdataRoot: Path? = configuredTessdataRoot()
 ) : OCRService {
     private val languages = languages.map(String::trim).filter(String::isNotEmpty).distinct()
+    private val pageSegMode = ITessAPI.TessPageSegMode.PSM_AUTO
+    private val imageScaleFactor = 2
 
     override suspend fun recognize(image: BufferedImage): OcrResult = withContext(Dispatchers.Default) {
         val coroutineContext = currentCoroutineContext()
@@ -44,8 +47,29 @@ class TesseractOcrService(
                 // that native API expects the directory containing *.traineddata.
                 setDatapath(dataRoot.resolve("tessdata").toString())
                 setLanguage(languages.joinToString("+"))
+                setPageSegMode(pageSegMode)
             }
-            val recognizedWords = engine.getWords(image, ITessAPI.TessPageIteratorLevel.RIL_WORD)
+            val recognitionImage = if (imageScaleFactor == 1) image else BufferedImage(
+                image.width * imageScaleFactor,
+                image.height * imageScaleFactor,
+                BufferedImage.TYPE_INT_RGB
+            ).also { scaled ->
+                scaled.createGraphics().let { graphics ->
+                    try {
+                        graphics.color = java.awt.Color.WHITE
+                        graphics.fillRect(0, 0, scaled.width, scaled.height)
+                        graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC)
+                        graphics.drawImage(image, 0, 0, scaled.width, scaled.height, null)
+                    } finally {
+                        graphics.dispose()
+                    }
+                }
+            }
+            val recognizedWords = try {
+                engine.getWords(recognitionImage, ITessAPI.TessPageIteratorLevel.RIL_WORD)
+            } finally {
+                if (recognitionImage !== image) recognitionImage.flush()
+            }
             val recognitionMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - engineStarted)
             coroutineContext.ensureActive()
 
@@ -56,7 +80,12 @@ class TesseractOcrService(
                 else OcrWord(
                     text = text,
                     confidence = word.confidence.takeIf { it.isFinite() && it in 0f..100f }?.div(100f),
-                    bounds = Rectangle(box),
+                    bounds = Rectangle(
+                        box.x / imageScaleFactor,
+                        box.y / imageScaleFactor,
+                        ((box.x + box.width + imageScaleFactor - 1) / imageScaleFactor) - box.x / imageScaleFactor,
+                        ((box.y + box.height + imageScaleFactor - 1) / imageScaleFactor) - box.y / imageScaleFactor
+                    ),
                     language = languages.joinToString("+"),
                     wordIndex = index
                 )
@@ -73,6 +102,11 @@ class TesseractOcrService(
             } else {
                 emptyMap()
             }
+            val diagnostics = metadata + mapOf(
+                "pageSegmentationMode" to pageSegMode.toString(),
+                "imageScaleFactor" to imageScaleFactor.toString(),
+                "reportedCoordinateSpace" to "ORIGINAL_CROP_IMAGE_PIXELS"
+            )
             OcrResult(
                 text = words.joinToString(" ") { it.text },
                 confidence = words.mapNotNull { it.confidence }.takeIf { it.isNotEmpty() }?.average()?.toFloat(),
@@ -80,7 +114,7 @@ class TesseractOcrService(
                 engineName = PROVIDER_ID,
                 language = languages.joinToString("+"),
                 coordinateSpace = OcrCoordinateSpace.CROP_IMAGE_PIXELS,
-                metadata = metadata
+                metadata = diagnostics
             )
         } catch (e: CancellationException) {
             throw e

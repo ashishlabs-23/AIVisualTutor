@@ -4,6 +4,15 @@ AI Visual Tutor is a Windows desktop application built with Kotlin, Compose Mult
 
 ## Project status
 
+## Phase 5 Status
+
+**Evidence-adaptive grounding is implemented as an experimental, mode-selectable pipeline, but Phase 5 is not frozen.** The screenshot preview accepts a target description and can run `UIA_ONLY`, `OCR_ONLY`, `UIA_OCR`, `VISION_ONLY`, or `ADAPTIVE`; each run records provider status and result data. Phase 5 code reuses existing UIA, OCR, and UGround provider boundaries and retains the Phase 1–4 path.
+
+- The current automation suite passes **134 tests** and `:composeApp:build` succeeds.
+- Heuristic fusion is not accuracy-calibrated. The actual UGround model was not run in this checkout because model/runtime artifacts are absent and available memory is below the provider's existing safety guard.
+- No new real-app ground-truth evaluation or interactive Windows validation has been performed. No accuracy improvement is claimed.
+- Implementation and validation limitations are in [`docs/PHASE_5.md`](docs/PHASE_5.md).
+
 ## Phase 4 Status
 
 **Phase 4 core plumbing is complete, and real UGround CPU inference has now executed on saved crops.** This establishes that the configured provider can return and persist points; it does not establish visual-grounding accuracy or correctness. Human labels remain optional research annotations and are never required for application operation.

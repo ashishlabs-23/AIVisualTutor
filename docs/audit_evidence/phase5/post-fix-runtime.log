@@ -1,0 +1,86 @@
+> Task :composeApp:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :composeApp:convertXmlValueResourcesForMain NO-SOURCE
+> Task :composeApp:copyNonXmlValueResourcesForMain NO-SOURCE
+> Task :composeApp:prepareComposeResourcesTaskForMain NO-SOURCE
+> Task :composeApp:generateResourceAccessorsForMain SKIPPED
+> Task :composeApp:generateActualResourceCollectorsForMain SKIPPED
+> Task :composeApp:generateComposeResClass SKIPPED
+> Task :composeApp:compileKotlin UP-TO-DATE
+> Task :composeApp:compileJava NO-SOURCE
+> Task :composeApp:assembleMainResources UP-TO-DATE
+> Task :composeApp:processResources UP-TO-DATE
+> Task :composeApp:classes UP-TO-DATE
+> Task :composeApp:jar UP-TO-DATE
+
+> Task :composeApp:publishWgcBridge
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  WgcSharp -> C:\Users\USER\Downloads\AIVisualTutor-main\wgc-bridge\WgcSharp\src\WgcSharp\bin\Release\net10.0-windows10.0.19041.0\WgcSharp.dll
+  wgc-bridge -> C:\Users\USER\Downloads\AIVisualTutor-main\wgc-bridge\bin\Release\net10.0-windows10.0.19041.0\win-x64\wgc-bridge.dll
+  wgc-bridge -> C:\Users\USER\Downloads\AIVisualTutor-main\wgc-bridge\bin\Release\net10.0-windows10.0.19041.0\win-x64\publish\
+
+> Task :composeApp:stageWgcBridgeForDistribution UP-TO-DATE
+> Task :composeApp:prepareAppResources UP-TO-DATE
+
+> Task :composeApp:run
+HOTKEY_REGISTERED {registeredIds=both}
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 9.0.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/8.9/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD SUCCESSFUL in 27s
+8 actionable tasks: 2 executed, 6 up-to-date
+> Task :composeApp:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :composeApp:convertXmlValueResourcesForMain NO-SOURCE
+> Task :composeApp:copyNonXmlValueResourcesForMain NO-SOURCE
+> Task :composeApp:prepareComposeResourcesTaskForMain NO-SOURCE
+> Task :composeApp:generateResourceAccessorsForMain SKIPPED
+> Task :composeApp:generateActualResourceCollectorsForMain SKIPPED
+> Task :composeApp:generateComposeResClass SKIPPED
+> Task :composeApp:compileKotlin UP-TO-DATE
+> Task :composeApp:compileJava NO-SOURCE
+> Task :composeApp:assembleMainResources UP-TO-DATE
+> Task :composeApp:processResources UP-TO-DATE
+> Task :composeApp:classes UP-TO-DATE
+> Task :composeApp:jar UP-TO-DATE
+
+> Task :composeApp:publishWgcBridge
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  WgcSharp -> C:\Users\USER\Downloads\AIVisualTutor-main\wgc-bridge\WgcSharp\src\WgcSharp\bin\Release\net10.0-windows10.0.19041.0\WgcSharp.dll
+  wgc-bridge -> C:\Users\USER\Downloads\AIVisualTutor-main\wgc-bridge\bin\Release\net10.0-windows10.0.19041.0\win-x64\wgc-bridge.dll
+  wgc-bridge -> C:\Users\USER\Downloads\AIVisualTutor-main\wgc-bridge\bin\Release\net10.0-windows10.0.19041.0\win-x64\publish\
+
+> Task :composeApp:stageWgcBridgeForDistribution UP-TO-DATE
+> Task :composeApp:prepareAppResources UP-TO-DATE
+
+> Task :composeApp:run
+HOTKEY_REGISTERED {registeredIds=both}
+HOTKEY_TRIGGERED {state=SELECT_REGION}
+SELECTION_STARTED {regionId=5e836287-822c-4d2f-a26c-8fe2375f211d, state=SELECTING}
+PREVIOUS_FOREGROUND_WINDOW_CAPTURED {regionId=5e836287-822c-4d2f-a26c-8fe2375f211d, state=captured}
+OVERLAY_SHOWN {regionId=5e836287-822c-4d2f-a26c-8fe2375f211d, state=SELECTING}
+SELECTION_COMPLETED {regionId=5e836287-822c-4d2f-a26c-8fe2375f211d, state=SELECTED}
+CAPTURE_STARTED {regionId=5e836287-822c-4d2f-a26c-8fe2375f211d, state=CAPTURING}
+CAPTURE_COMPLETED {regionId=5e836287-822c-4d2f-a26c-8fe2375f211d, width=520, height=320, state=CAPTURE_COMPLETED}
+PROCESSING_STARTED {regionId=5e836287-822c-4d2f-a26c-8fe2375f211d, state=PROCESSING}
+SLF4J(W): No SLF4J providers were found.
+SLF4J(W): Defaulting to no-operation (NOP) logger implementation
+SLF4J(W): See https://www.slf4j.org/codes.html#noProviders for further details.
+Estimating resolution as 234
+CONTEXT_CREATED {regionId=5e836287-822c-4d2f-a26c-8fe2375f211d, width=520, height=320, durationMillis=536, ocrCharacters=46}
+OVERLAY_CLOSED {state=CLOSED}
+WINDOW_RESTORED {state=VISIBLE}
+Estimating resolution as 234
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 9.0.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/8.9/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD SUCCESSFUL in 40s
+8 actionable tasks: 2 executed, 6 up-to-date

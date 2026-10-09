@@ -48,6 +48,10 @@ import context.GroundingMode
 import context.GroundingRequest
 import context.ScreenToScreenshotTransform
 import context.ApplicationContext
+import context.BlenderVerificationWorkflow
+import context.ExpectedState
+import context.VerificationResult
+import context.VerificationRun
 import models.HighlightRegion
 import bridge.WgcScreenCaptureService
 import bridge.FrozenSnapshotRegionCaptureService
@@ -72,6 +76,7 @@ fun main() = application {
     val lifecycleLogger = remember { StderrContextLogger() }
     val globalCaptureHotkey = remember { GlobalCaptureHotkey(logger = lifecycleLogger) }
     val contextProcessor = remember { ContextProcessor(logger = lifecycleLogger) }
+    val blenderVerificationWorkflow = remember { BlenderVerificationWorkflow() }
     val groundingExperimentRunner = remember { GroundingExperimentRunner() }
     val regionCapture = remember { WgcScreenCaptureService(lifecycleLogger) }
     val selectionController = remember { RegionSelectionController(lifecycleLogger) }
@@ -88,9 +93,59 @@ fun main() = application {
     var previewEvidence by remember { mutableStateOf(ui.ScreenshotPreviewEvidence.pending(null)) }
     var captureStatus by remember { mutableStateOf<String?>(null) }
     var isCaptureInProgress by remember { mutableStateOf(false) }
+    var blenderVerificationRun by remember { mutableStateOf<VerificationRun?>(null) }
+    var isBlenderVerificationBusy by remember { mutableStateOf(false) }
+    var blenderVerificationFeedback by remember { mutableStateOf<String?>(null) }
     var groundingApplicationContext by remember { mutableStateOf<ApplicationContext?>(null) }
     var groundingDesktopRegion by remember { mutableStateOf<Rectangle?>(null) }
     var previewExperimentCaseId by remember { mutableStateOf("PREVIEW_${UUID.randomUUID()}") }
+
+    fun captureBlenderBaseline(expected: ExpectedState) {
+        previewScope.launch {
+            if (isBlenderVerificationBusy) return@launch
+            isBlenderVerificationBusy = true
+            blenderVerificationFeedback = "Connecting to Blender and capturing baseline..."
+            try {
+                val run = blenderVerificationWorkflow.captureBaseline(expected)
+                blenderVerificationRun = run
+                blenderVerificationFeedback =
+                    "Baseline captured from ${run.baseline?.sceneName ?: "the active scene"} in Blender."
+            } catch (exception: kotlinx.coroutines.CancellationException) {
+                throw exception
+            } catch (exception: Exception) {
+                blenderVerificationRun = null
+                blenderVerificationFeedback =
+                    "Baseline unavailable: ${exception.message ?: "Could not capture Blender state."} Enable the AI Visual Tutor State Adapter in Blender."
+            } finally {
+                isBlenderVerificationBusy = false
+            }
+        }
+    }
+
+    fun verifyBlenderAction(expected: ExpectedState) {
+        previewScope.launch {
+            if (isBlenderVerificationBusy) return@launch
+            val run = blenderVerificationRun
+            if (run == null || run.expected != expected) {
+                blenderVerificationFeedback = "Capture a new baseline for the selected operation first."
+                return@launch
+            }
+            isBlenderVerificationBusy = true
+            blenderVerificationFeedback = "Checking the current Blender scene..."
+            try {
+                val result: VerificationResult = blenderVerificationWorkflow.verifyAction(run)
+                blenderVerificationFeedback = "${result.status}: ${result.explanation} (saved run ${result.runId})"
+                blenderVerificationRun = null
+            } catch (exception: kotlinx.coroutines.CancellationException) {
+                throw exception
+            } catch (exception: Exception) {
+                blenderVerificationFeedback =
+                    "Verification could not be saved: ${exception.message ?: "Unexpected error."}"
+            } finally {
+                isBlenderVerificationBusy = false
+            }
+        }
+    }
 
     suspend fun openRegionSelector() {
         if (isRegionSelectorOpen || selectorSnapshot != null) return
@@ -287,7 +342,12 @@ fun main() = application {
                 onCapturePreviousWindow = {
                     previewScope.launch { capturePreviousWindow() }
                 },
-                captureStatus = captureStatus
+                captureStatus = captureStatus,
+                blenderVerificationBaselineExpected = blenderVerificationRun?.expected,
+                isBlenderVerificationBusy = isBlenderVerificationBusy,
+                blenderVerificationFeedback = blenderVerificationFeedback,
+                onCaptureBlenderBaseline = ::captureBlenderBaseline,
+                onVerifyBlenderAction = ::verifyBlenderAction
             )
         } else {
             TutorDock(onClick = { isPanelExpanded = true })

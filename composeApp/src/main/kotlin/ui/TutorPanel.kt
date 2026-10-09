@@ -26,6 +26,7 @@ import androidx.compose.ui.window.WindowScope
 import models.ApplicationType
 import overlay.OverlayManager
 import tutor.TutorController
+import context.ExpectedState
 
 /**
  * The full tutor panel: application selector, current step, navigation,
@@ -44,7 +45,12 @@ fun WindowScope.TutorPanel(
     onClose: () -> Unit,
     onOpenRegionSelector: () -> Unit,
     onCapturePreviousWindow: () -> Unit,
-    captureStatus: String?
+    captureStatus: String?,
+    blenderVerificationBaselineExpected: ExpectedState? = null,
+    isBlenderVerificationBusy: Boolean = false,
+    blenderVerificationFeedback: String? = null,
+    onCaptureBlenderBaseline: (ExpectedState) -> Unit = {},
+    onVerifyBlenderAction: (ExpectedState) -> Unit = {}
 ) {
     val state = controller.state
     val step = controller.currentStep
@@ -90,6 +96,19 @@ fun WindowScope.TutorPanel(
 
             Spacer(modifier = Modifier.height(14.dp))
             InstructionCard(step = step)
+
+            if (state.selectedApplication == ApplicationType.BLENDER) {
+                Spacer(modifier = Modifier.height(14.dp))
+                Divider(color = Color(0xFF3A3F4B))
+                Spacer(modifier = Modifier.height(12.dp))
+                BlenderVerificationPanel(
+                    baselineExpected = blenderVerificationBaselineExpected,
+                    isBusy = isBlenderVerificationBusy,
+                    feedback = blenderVerificationFeedback,
+                    onCaptureBaseline = onCaptureBlenderBaseline,
+                    onVerifyAction = onVerifyBlenderAction
+                )
+            }
 
             Spacer(modifier = Modifier.height(14.dp))
             StepNavigationButtons(

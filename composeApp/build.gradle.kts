@@ -41,6 +41,19 @@ val bridgePublishDirectory = rootProject.layout.projectDirectory.dir(
 )
 val bridgeApplicationResources = layout.buildDirectory.dir("composeAppResources")
 
+// Detect whether the .NET SDK is available so that the bridge build can be
+// skipped gracefully on machines where dotnet is not installed.
+val dotnetAvailable: Boolean by lazy {
+    try {
+        val result = ProcessBuilder("dotnet", "--version")
+            .redirectErrorStream(true)
+            .start()
+        result.waitFor() == 0
+    } catch (_: Exception) {
+        false
+    }
+}
+
 val publishWgcBridge by tasks.registering(Exec::class) {
     group = "distribution"
     description = "Publishes the self-contained Windows WGC bridge for application packaging."
@@ -55,6 +68,8 @@ val publishWgcBridge by tasks.registering(Exec::class) {
         "-p:PublishSingleFile=true",
         "-o", bridgePublishDirectory.asFile.absolutePath
     )
+    // Skip this task (rather than crash) when dotnet SDK is not on the PATH.
+    onlyIf("dotnet SDK is available on PATH") { dotnetAvailable }
 }
 
 val stageWgcBridgeForDistribution by tasks.registering(Sync::class) {

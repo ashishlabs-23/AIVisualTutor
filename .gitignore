@@ -1,5 +1,7 @@
 .gradle/
 build/
+bin/
+composeApp/bin/
 composeApp/build/
 out/
 .idea/

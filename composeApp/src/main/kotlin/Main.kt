@@ -136,11 +136,36 @@ fun main() = application {
                 val result: VerificationResult = blenderVerificationWorkflow.verifyAction(run)
                 blenderVerificationFeedback = "${result.status}: ${result.explanation} (saved run ${result.runId})"
                 blenderVerificationRun = null
+                controller.recordVerificationResult(result, expected)
             } catch (exception: kotlinx.coroutines.CancellationException) {
                 throw exception
             } catch (exception: Exception) {
                 blenderVerificationFeedback =
                     "Verification could not be saved: ${exception.message ?: "Unexpected error."}"
+            } finally {
+                isBlenderVerificationBusy = false
+            }
+        }
+    }
+
+    fun autoVerifyBlenderAction(expected: ExpectedState) {
+        previewScope.launch {
+            if (isBlenderVerificationBusy) return@launch
+            isBlenderVerificationBusy = true
+            blenderVerificationFeedback = "Auto-monitoring: capturing baseline in Blender..."
+            try {
+                val run = blenderVerificationWorkflow.captureBaseline(expected)
+                blenderVerificationRun = run
+                blenderVerificationFeedback = "Baseline recorded. Perform the action in Blender (auto-detecting state changes)..."
+                val result: VerificationResult = blenderVerificationWorkflow.autoVerifyAction(run)
+                blenderVerificationFeedback = "${result.status}: ${result.explanation}"
+                blenderVerificationRun = null
+                controller.recordVerificationResult(result, expected)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (exception: Exception) {
+                blenderVerificationFeedback =
+                    "Auto-verification notice: ${exception.message ?: "Could not complete automatically; use manual verification."}"
             } finally {
                 isBlenderVerificationBusy = false
             }
@@ -347,7 +372,8 @@ fun main() = application {
                 isBlenderVerificationBusy = isBlenderVerificationBusy,
                 blenderVerificationFeedback = blenderVerificationFeedback,
                 onCaptureBlenderBaseline = ::captureBlenderBaseline,
-                onVerifyBlenderAction = ::verifyBlenderAction
+                onVerifyBlenderAction = ::verifyBlenderAction,
+                onAutoVerifyBlenderAction = ::autoVerifyBlenderAction
             )
         } else {
             TutorDock(onClick = { isPanelExpanded = true })

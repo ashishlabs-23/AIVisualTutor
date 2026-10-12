@@ -409,6 +409,145 @@ class AdaptiveGroundingTest {
         assertEquals(5L, Files.list(directory.resolve("phase5-experiments")).use { paths -> paths.filter { Files.isDirectory(it) && it.fileName.toString() != "screenshots" }.count() })
     }
 
+    @Test fun negativeMultiMonitorScreenOriginTransformsCorrectlyIntoScreenshotPixels() {
+        // Multi-monitor setup: Secondary display to the left at virtual desktop X = -1920..0, Y = -1080..0
+        val transform = ScreenToScreenshotTransform(screenOriginX = -1920.0, screenOriginY = -1080.0, scaleX = 1.0, scaleY = 1.0)
+        val desktopBounds = Rectangle(-1500, -800, 200, 50)
+        val transformed = transform.box(desktopBounds)
+
+        // -1500 - (-1920) = 420; -800 - (-1080) = 280
+        assertEquals(GroundingBox(420.0, 280.0, 200.0, 50.0), transformed)
+        assertTrue(transformed.validWithin(1920.0, 1080.0))
+    }
+
+    @Test fun perMonitorDpiScalingFactorsTransformCoordinatesCorrectly() {
+        // High-DPI display scaled at 125% (scale factor 1.25) or 150% (1.50)
+        val transform125 = ScreenToScreenshotTransform(screenOriginX = 100.0, screenOriginY = 100.0, scaleX = 1.25, scaleY = 1.25)
+        val bounds = Rectangle(120, 140, 80, 40)
+        val box125 = transform125.box(bounds)
+
+        // (120 - 100) * 1.25 = 25.0; (140 - 100) * 1.25 = 50.0; width = 80 * 1.25 = 100.0; height = 40 * 1.25 = 50.0
+        assertEquals(GroundingBox(25.0, 50.0, 100.0, 50.0), box125)
+        assertTrue(box125.validWithin(500.0, 500.0))
+    }
+
+    @Test fun conflictingProviderLabelsEscalateWithoutAveraging() = runBlocking {
+        // UIA says "Save", OCR says "Cancel" within the same region
+        val region = GroundingBox(10.0, 10.0, 100.0, 30.0)
+        val uiaObs = GroundingObservation(
+            GroundingProviderId.UIA, "uia", "Save", target, region, region,
+            GroundingBoxSpace.SCREENSHOT_PIXELS, GroundingBoxSpace.SCREENSHOT_PIXELS,
+            null, textSimilarity(target, "Save"), executionId = "test"
+        )
+        val ocrObs = GroundingObservation(
+            GroundingProviderId.OCR, "ocr", "Cancel", target, region, region,
+            GroundingBoxSpace.SCREENSHOT_PIXELS, GroundingBoxSpace.SCREENSHOT_PIXELS,
+            null, textSimilarity(target, "Cancel"), executionId = "test"
+        )
+        val candidates = GroundingCandidateGenerator().generate(listOf(uiaObs, ocrObs))
+        val runs = listOf(
+            GroundingProviderRun(GroundingProviderId.UIA, GroundingProviderStatus.SUCCESS, 10, listOf(uiaObs)),
+            GroundingProviderRun(GroundingProviderId.OCR, GroundingProviderStatus.SUCCESS, 10, listOf(ocrObs))
+        )
+        val (decision, reason) = GroundingConfidenceEvaluator().decide(candidates, request(GroundingMode.UIA_OCR), runs)
+        assertEquals(EvidenceDecision.ESCALATE, decision)
+        assertEquals(GroundingDecisionReason.CONFLICTING_EVIDENCE, reason)
+    }
+
+    @Test fun visionPointOutsideTextCandidateEscalatesConflict() = runBlocking {
+        // OCR finds "Save" button at (10, 10, 50, 30), but Vision returns a point far away at (200, 200)
+        val textRegion = GroundingBox(10.0, 10.0, 50.0, 30.0)
+        val textObs = GroundingObservation(
+            GroundingProviderId.OCR, "ocr", "Save", target, textRegion, textRegion,
+            GroundingBoxSpace.SCREENSHOT_PIXELS, GroundingBoxSpace.SCREENSHOT_PIXELS,
+            null, 1.0, executionId = "test"
+        )
+        val pointObs = GroundingObservation(
+            GroundingProviderId.VISION, "vision", null, target, GroundingBox(200.0, 200.0, 0.0, 0.0), GroundingBox(200.0, 200.0, 0.0, 0.0),
+            GroundingBoxSpace.SCREENSHOT_PIXELS, GroundingBoxSpace.SCREENSHOT_PIXELS,
+            null, 0.0, mapOf("geometryKind" to "POINT"), executionId = "test"
+        )
+        val candidates = GroundingCandidateGenerator().generate(listOf(textObs, pointObs))
+        val runs = listOf(
+            GroundingProviderRun(GroundingProviderId.OCR, GroundingProviderStatus.SUCCESS, 10, listOf(textObs)),
+            GroundingProviderRun(GroundingProviderId.VISION, GroundingProviderStatus.SUCCESS, 10, listOf(pointObs))
+        )
+        val (decision, reason) = GroundingConfidenceEvaluator().decide(candidates, request(GroundingMode.ADAPTIVE), runs)
+        assertEquals(EvidenceDecision.ESCALATE, decision)
+        assertEquals(GroundingDecisionReason.CONFLICTING_EVIDENCE, reason)
+    }
+
+    @Test fun winnerMarginBoundaryProducesRefinementDecision() = runBlocking {
+        // Two candidates with scores within minimumWinnerMargin (0.12)
+        val firstObs = GroundingObservation(
+            GroundingProviderId.OCR, "ocr-1", "Save", target, GroundingBox(10.0, 10.0, 50.0, 20.0), GroundingBox(10.0, 10.0, 50.0, 20.0),
+            GroundingBoxSpace.SCREENSHOT_PIXELS, GroundingBoxSpace.SCREENSHOT_PIXELS,
+            null, 1.0, executionId = "test"
+        )
+        val secondObs = GroundingObservation(
+            GroundingProviderId.OCR, "ocr-2", "Save File", target, GroundingBox(10.0, 40.0, 50.0, 20.0), GroundingBox(10.0, 40.0, 50.0, 20.0),
+            GroundingBoxSpace.SCREENSHOT_PIXELS, GroundingBoxSpace.SCREENSHOT_PIXELS,
+            null, 0.95, executionId = "test"
+        )
+        val candidates = GroundingCandidateGenerator().generate(listOf(firstObs, secondObs))
+        val runs = listOf(
+            GroundingProviderRun(GroundingProviderId.OCR, GroundingProviderStatus.SUCCESS, 10, listOf(firstObs, secondObs))
+        )
+        val (decision, reason) = GroundingConfidenceEvaluator().decide(candidates, request(GroundingMode.OCR_ONLY), runs)
+        assertEquals(EvidenceDecision.REFINE, decision)
+        assertEquals(GroundingDecisionReason.MULTIPLE_PLAUSIBLE_CANDIDATES, reason)
+    }
+
+    @Test fun absentTargetWithNoMatchReturnsAbstain() = runBlocking {
+        val runs = listOf(
+            GroundingProviderRun(GroundingProviderId.UIA, GroundingProviderStatus.EMPTY_RESULT, 10),
+            GroundingProviderRun(GroundingProviderId.OCR, GroundingProviderStatus.SUCCESS_NO_MATCH, 10)
+        )
+        val (decision, reason) = GroundingConfidenceEvaluator().decide(emptyList(), request(GroundingMode.UIA_OCR), runs)
+        assertEquals(EvidenceDecision.ABSTAIN, decision)
+        assertEquals(GroundingDecisionReason.NO_MATCH, reason)
+    }
+
+    @Test fun oneProviderFailingWhileAnotherSucceedsAllowsSingleModalityDecision() = runBlocking {
+        // OCR times out, but UIA successfully returned the unique target
+        val uiaObs = GroundingObservation(
+            GroundingProviderId.UIA, "uia", "Save", target, box, box,
+            GroundingBoxSpace.SCREENSHOT_PIXELS, GroundingBoxSpace.SCREENSHOT_PIXELS,
+            null, 1.0, executionId = "test"
+        )
+        val candidates = GroundingCandidateGenerator().generate(listOf(uiaObs))
+        val runs = listOf(
+            GroundingProviderRun(GroundingProviderId.UIA, GroundingProviderStatus.SUCCESS, 10, listOf(uiaObs)),
+            GroundingProviderRun(GroundingProviderId.OCR, GroundingProviderStatus.TIMED_OUT, 30_000, diagnostic = "provider_timeout")
+        )
+        val (decision, reason) = GroundingConfidenceEvaluator().decide(candidates, request(GroundingMode.UIA_OCR), runs)
+        assertEquals(EvidenceDecision.ACCEPT, decision)
+        assertEquals(GroundingDecisionReason.UNIQUE_SUPPORTED_CANDIDATE, reason)
+    }
+
+    @Test fun visionOnlySuccessfulVisualPointIsReturnedAsProposal() = runBlocking {
+        val visualProvider = VisualGroundingProvider {
+            VisualGroundingResult(
+                semantic = null,
+                geometry = GroundingGeometricEvidence(
+                    point = GroundingPoint(0.5, 0.5),
+                    coordinateSpace = VisualGroundingCoordinateSpace.NORMALIZED_CROP
+                ),
+                providerId = "test-vision",
+                availability = GroundingProviderAvailability.AVAILABLE
+            )
+        }
+        val router = EvidenceAdaptiveGroundingRouter(
+            GroundingUiaProvider { error("UIA must not run in VISION_ONLY") },
+            GroundingOcrProvider { error("OCR must not run in VISION_ONLY") },
+            ExistingVisionGroundingProvider(visualProvider)
+        )
+        val result = router.run(request(GroundingMode.VISION_ONLY))
+        assertEquals(EvidenceDecision.REFINE, result.decision)
+        assertEquals(GroundingDecisionReason.INSUFFICIENT_EVIDENCE, result.reason)
+        assertEquals(GroundingBox(50.0, 40.0, 0.0, 0.0), result.proposedBox)
+    }
+
     private fun router(
         calls: MutableList<GroundingProviderId>,
         evidence: GroundingBox,

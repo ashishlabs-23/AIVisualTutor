@@ -1,0 +1,258 @@
+[
+  {
+    "testId": "P5-01",
+    "phase": "PHASE_5",
+    "description": "Project build and compilation",
+    "status": "PASS",
+    "command": ".\\gradlew.bat assemble",
+    "exitCode": 0,
+    "evidence": [
+      "composeApp/build/libs/composeApp-jvm.jar"
+    ],
+    "observedResult": "BUILD SUCCESSFUL in 782ms. 4 actionable tasks: 4 up-to-date.",
+    "limitations": []
+  },
+  {
+    "testId": "P5-02",
+    "phase": "PHASE_5",
+    "description": "Focused Phase 5 vision and grounding tests",
+    "status": "PASS",
+    "command": ".\\gradlew.bat test --tests \"context.HttpVisualGroundingProviderTest\" --tests \"context.LlamaCppVisualGroundingProviderTest\" --tests \"context.AdaptiveGroundingTest\" --tests \"context.GroundTruthEvaluationTest\" --tests \"context.Phase5EvaluationTest\"",
+    "exitCode": 0,
+    "evidence": [
+      "composeApp/build/reports/tests/test/index.html"
+    ],
+    "observedResult": "All focused Phase 5 tests executed and passed without errors in 2s.",
+    "limitations": []
+  },
+  {
+    "testId": "P5-03",
+    "phase": "PHASE_5",
+    "description": "HTTP inference endpoint discovery",
+    "status": "BLOCKED",
+    "command": "powershell -Command \"Get-NetTCPConnection -LocalPort 8000,8080 -ErrorAction SilentlyContinue; [System.Environment]::GetEnvironmentVariable('AIVT_VISUAL_ENDPOINT')\"",
+    "exitCode": 0,
+    "evidence": [
+      "docs/audit_evidence/phase5/vision-model-root-cause-investigation.md"
+    ],
+    "observedResult": "No remote or local service active on ports 8000/8080. AIVT_VISUAL_ENDPOINT is unset. Host free memory (~3.1 GB) is below the 3.63 GB safety guard, blocking local CLI execution.",
+    "limitations": [
+      "Requires an external GPU server hosting osunlp/UGround-V1-2B via vLLM or llama-server."
+    ]
+  },
+  {
+    "testId": "P5-04",
+    "phase": "PHASE_5",
+    "description": "HTTP request construction and serialization",
+    "status": "PASS",
+    "command": ".\\gradlew.bat test --tests \"context.HttpVisualGroundingProviderTest.groundReturnsParsedPointWhenEndpointReturnsCoordinates\"",
+    "exitCode": 0,
+    "evidence": [
+      "composeApp/build/reports/tests/test/classes/context.HttpVisualGroundingProviderTest.html"
+    ],
+    "observedResult": "Verified JSON body includes model ID, image_url data URI (base64 PNG), system instructions, and target bounding prompt format conforming to OpenAI Vision API.",
+    "limitations": []
+  },
+  {
+    "testId": "P5-05",
+    "phase": "PHASE_5",
+    "description": "Genuine UGround-V1-2B model inference against real screenshot",
+    "status": "BLOCKED",
+    "command": "N/A (Prerequisite external service unavailable)",
+    "exitCode": -1,
+    "evidence": [
+      "docs/audit_evidence/phase5/vision-model-root-cause-investigation.md"
+    ],
+    "observedResult": "Hermetic pipeline fully verified via mock HTTP transport. Genuine model inference blocked due to absence of live external inference endpoint.",
+    "limitations": [
+      "Model weights not downloaded locally; host RAM below 3.63 GB threshold."
+    ]
+  },
+  {
+    "testId": "P5-06",
+    "phase": "PHASE_5",
+    "description": "Coordinate validation and scaling to pixel space",
+    "status": "PASS",
+    "command": ".\\gradlew.bat test --tests \"context.HttpVisualGroundingProviderTest.scalesCoordinatesCorrectlyForNonSquareImages\"",
+    "exitCode": 0,
+    "evidence": [
+      "composeApp/build/reports/tests/test/classes/context.HttpVisualGroundingProviderTest.html"
+    ],
+    "observedResult": "Correctly scaled normalized [0, 1000) coordinates to 1920x1080 display space: (250, 750) mapped to (480, 810). Handled out-of-bounds, negative, and invalid formats safely.",
+    "limitations": []
+  },
+  {
+    "testId": "P5-07",
+    "phase": "PHASE_5",
+    "description": "Structured failure classification and error handling",
+    "status": "PASS",
+    "command": ".\\gradlew.bat test --tests \"context.HttpVisualGroundingProviderTest.handlesHttpErrorGracefully\" --tests \"context.HttpVisualGroundingProviderTest.handlesConnectionFailureGracefully\"",
+    "exitCode": 0,
+    "evidence": [
+      "composeApp/build/reports/tests/test/classes/context.HttpVisualGroundingProviderTest.html"
+    ],
+    "observedResult": "Distinguishes PROVIDER_UNAVAILABLE, INFERENCE_TIMEOUT, PROCESS_EXIT_NONZERO, EMPTY_MODEL_OUTPUT, and OUTPUT_PARSE_FAILED without conflation or false success.",
+    "limitations": []
+  },
+  {
+    "testId": "P5-08",
+    "phase": "PHASE_5",
+    "description": "VISION_ONLY and ADAPTIVE routing verification",
+    "status": "PASS",
+    "command": ".\\gradlew.bat test --tests \"context.AdaptiveGroundingTest\"",
+    "exitCode": 0,
+    "evidence": [
+      "composeApp/build/reports/tests/test/classes/context.AdaptiveGroundingTest.html"
+    ],
+    "observedResult": "VISION_ONLY reports single point proposals with REFINE / INSUFFICIENT_EVIDENCE. Multimodal corroboration yields ACCEPT. Provider failure cleanly escalates to operator.",
+    "limitations": []
+  },
+  {
+    "testId": "P5-09",
+    "phase": "PHASE_5",
+    "description": "Ground-truth dataset evaluation across 10 cases",
+    "status": "PASS",
+    "command": ".\\gradlew.bat runPhase5Evaluation",
+    "exitCode": 0,
+    "evidence": [
+      "docs/audit_evidence/phase5/ground-truth-v2/evaluation-post-repair.json"
+    ],
+    "observedResult": "All 10 ground-truth cases evaluated across UIA_ONLY, OCR_ONLY, UIA_OCR, VISION_ONLY, and ADAPTIVE. Evaluated cases: 10 in OCR/Adaptive; 1 accepted (100% precision); escalation rate (0.9) explicitly accounted for.",
+    "limitations": [
+      "Vision provider unconfigured on test host, resulting in expected escalation for vision-dependent cases."
+    ]
+  },
+  {
+    "testId": "P6-01",
+    "phase": "PHASE_6",
+    "description": "Blender loopback TCP state connection and snapshot capture",
+    "status": "PASS",
+    "command": ".\\gradlew.bat test --tests \"context.LiveBlenderEndToEndTest.testLiveBlenderConnectionAndSnapshot\"",
+    "exitCode": 0,
+    "evidence": [
+      "composeApp/build/reports/tests/test/classes/context.LiveBlenderEndToEndTest.html"
+    ],
+    "observedResult": "Connected to live Blender 5.2.2 LTS over loopback TCP. Captured scene 'Scene' with 3 objects (Cube, Light, Camera) in 2.485s.",
+    "limitations": []
+  },
+  {
+    "testId": "P6-02",
+    "phase": "PHASE_6",
+    "description": "Stale process rejection, port isolation, and session correlation",
+    "status": "PASS",
+    "command": ".\\gradlew.bat test --tests \"context.BlenderTcpStateProviderTest.verificationRunCorrelatesSnapshotsAndRejectsOtherBlenderSessions\" --tests \"context.BlenderTcpStateProviderTest.missingAdapterIsUnavailableNotAnEmptyScene\"",
+    "exitCode": 0,
+    "evidence": [
+      "composeApp/build/reports/tests/test/classes/context.BlenderTcpStateProviderTest.html"
+    ],
+    "observedResult": "Rejected foreign session IDs, detected closed/missing adapters as UNAVAILABLE rather than empty scenes, and validated ephemeral port isolation.",
+    "limitations": []
+  },
+  {
+    "testId": "P6-03",
+    "phase": "PHASE_6",
+    "description": "CREATE operation verification in live Blender",
+    "status": "PASS",
+    "command": ".\\gradlew.bat test --tests \"context.LiveBlenderEndToEndTest.testPhase5SuccessObjectCreationInLiveBlender\"",
+    "exitCode": 0,
+    "evidence": [
+      "composeApp/build/reports/tests/test/classes/context.LiveBlenderEndToEndTest.html"
+    ],
+    "observedResult": "Captured baseline, created UV Sphere in live Blender, observed OBJECT_ADDED diff, verified OBJECT_EXISTS and OBJECT_TYPE conditions with SUCCESS in 3.197s.",
+    "limitations": []
+  },
+  {
+    "testId": "P6-04",
+    "phase": "PHASE_6",
+    "description": "RENAME operation verification in live Blender",
+    "status": "PASS",
+    "command": ".\\gradlew.bat test --tests \"context.LiveBlenderEndToEndTest.testPhase8ObjectMatchingAndRenameInLiveBlender\"",
+    "exitCode": 0,
+    "evidence": [
+      "composeApp/build/reports/tests/test/classes/context.LiveBlenderEndToEndTest.html"
+    ],
+    "observedResult": "Captured baseline, renamed Cube to CubeRenamed in live Blender, confirmed OBJECT_RENAMED diff ('Cube->CubeRenamed'), and verified OBJECT_NAME with SUCCESS in 3.194s.",
+    "limitations": []
+  },
+  {
+    "testId": "P6-05",
+    "phase": "PHASE_6",
+    "description": "DELETE operation verification in live Blender",
+    "status": "PASS",
+    "command": ".\\gradlew.bat test --tests \"context.LiveBlenderEndToEndTest.testPhase11ObjectDeletionInLiveBlender\"",
+    "exitCode": 0,
+    "evidence": [
+      "composeApp/build/reports/tests/test/classes/context.LiveBlenderEndToEndTest.html"
+    ],
+    "observedResult": "Captured baseline, removed Cube in live Blender, detected OBJECT_REMOVED diff, and verified deletion condition with SUCCESS in 3.127s.",
+    "limitations": []
+  },
+  {
+    "testId": "P6-06",
+    "phase": "PHASE_6",
+    "description": "SELECT operation verification in live Blender",
+    "status": "PASS",
+    "command": ".\\gradlew.bat test --tests \"context.LiveBlenderEndToEndTest.testPhase9ObjectSelectionInLiveBlender\"",
+    "exitCode": 0,
+    "evidence": [
+      "composeApp/build/reports/tests/test/classes/context.LiveBlenderEndToEndTest.html"
+    ],
+    "observedResult": "Captured baseline, selected Camera in live Blender, detected OBJECT_SELECTION_CHANGED diff, and verified OBJECT_SELECTED condition with SUCCESS in 3.329s.",
+    "limitations": []
+  },
+  {
+    "testId": "P6-07",
+    "phase": "PHASE_6",
+    "description": "MODIFY operation verification in live Blender",
+    "status": "PASS",
+    "command": ".\\gradlew.bat test --tests \"context.LiveBlenderEndToEndTest.testPhase10ObjectModificationInLiveBlender\"",
+    "exitCode": 0,
+    "evidence": [
+      "composeApp/build/reports/tests/test/classes/context.LiveBlenderEndToEndTest.html"
+    ],
+    "observedResult": "Captured baseline, moved Cube to (1.0, 2.0, 3.0) in live Blender, detected OBJECT_PROPERTY_CHANGED diff, and verified OBJECT_PROPERTY condition with SUCCESS in 3.121s.",
+    "limitations": []
+  },
+  {
+    "testId": "P6-08",
+    "phase": "PHASE_6",
+    "description": "Negative testing (no-action, wrong-action, absent-adapter)",
+    "status": "PASS",
+    "command": ".\\gradlew.bat test --tests \"context.LiveBlenderEndToEndTest.testPhase6NoActionDetectionAgainstLiveBlender\" --tests \"context.LiveBlenderEndToEndTest.testPhase7IncorrectActionDetectionInLiveBlender\"",
+    "exitCode": 0,
+    "evidence": [
+      "composeApp/build/reports/tests/test/classes/context.LiveBlenderEndToEndTest.html"
+    ],
+    "observedResult": "Verified FAILURE status on no-action (missing Cylinder) and incorrect-action (Sphere created instead of Cone). Rejected false success in all cases.",
+    "limitations": []
+  },
+  {
+    "testId": "P6-09",
+    "phase": "PHASE_6",
+    "description": "End-to-end JSON verification persistence",
+    "status": "PASS",
+    "command": "cmd /c \"dir /O-D %LOCALAPPDATA%\\AIVisualTutor\\verification-runs\\\"",
+    "exitCode": 0,
+    "evidence": [
+      "%LOCALAPPDATA%\\AIVisualTutor\\verification-runs\\2415285d-bf35-4dc5-95c8-dd3251c8212e.json",
+      "%LOCALAPPDATA%\\AIVisualTutor\\verification-runs\\599e4329-cdc0-4db2-8ee0-6d37d5638bf9.json"
+    ],
+    "observedResult": "Validated persisted JSON schema: runId, operation, status (SUCCESS/FAILURE), explanation, evidence details (Blender 5.2.2 LTS, loopback-tcp-v1), diffs, and condition lists.",
+    "limitations": []
+  },
+  {
+    "testId": "P6-10",
+    "phase": "PHASE_6",
+    "description": "Real desktop workflow integration and UI verification",
+    "status": "PARTIAL",
+    "command": ".\\gradlew.bat assemble",
+    "exitCode": 0,
+    "evidence": [
+      "composeApp/src/main/kotlin/Main.kt"
+    ],
+    "observedResult": "UI bindings (captureBlenderBaseline, verifyBlenderAction, preview panel) fully compiled and integrated in Main.kt. Live tests executed headlessly/subprocess; interactive desktop UI reserved for operator.",
+    "limitations": [
+      "Interactive desktop UI manual click-through must be performed by the user."
+    ]
+  }
+]

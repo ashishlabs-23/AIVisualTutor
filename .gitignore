@@ -9,6 +9,8 @@ out/
 *.iml
 .DS_Store
 local.properties
+.env
+.env.local
 wgc-bridge/bin/
 wgc-bridge/obj/
 wgc-bridge/WgcSharp/**/bin/
@@ -17,3 +19,5 @@ wgc-bridge/WgcSharp/**/obj/
 **/models/
 **/.cache/
 docs/calibration-runs/
+__pycache__/
+*.pyc

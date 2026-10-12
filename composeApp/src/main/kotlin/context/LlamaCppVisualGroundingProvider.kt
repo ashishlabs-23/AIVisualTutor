@@ -39,18 +39,22 @@ data class LlamaCppGroundingConfiguration(
         const val MODEL_ID = "UGround-V1-2B"
         const val DEFAULT_TIMEOUT_MILLIS = 60_000L
 
-        fun fromSystemProperties(): LlamaCppGroundingConfiguration =
-            LlamaCppGroundingConfiguration(
-                enabled = System.getProperty(ENABLE_PROPERTY)?.equals("true", ignoreCase = true) == true,
-                executablePath = System.getProperty(EXECUTABLE_PROPERTY)?.takeIf(String::isNotBlank)?.let(Path::of),
-                modelPath = System.getProperty(MODEL_PROPERTY)?.takeIf(String::isNotBlank)?.let(Path::of),
-                mmprojPath = System.getProperty(MMPROJ_PROPERTY)?.takeIf(String::isNotBlank)?.let(Path::of),
-                timeoutMillis = System.getProperty(TIMEOUT_PROPERTY)?.let { value ->
+        fun fromSystemProperties(): LlamaCppGroundingConfiguration {
+            fun resolve(prop: String, env: String): String? =
+                System.getProperty(prop)?.takeIf(String::isNotBlank)
+                    ?: System.getenv(env)?.takeIf(String::isNotBlank)
+
+            return LlamaCppGroundingConfiguration(
+                enabled = resolve(ENABLE_PROPERTY, "AIVT_VISUAL_ENABLED")?.equals("true", ignoreCase = true) == true,
+                executablePath = resolve(EXECUTABLE_PROPERTY, "AIVT_VISUAL_EXECUTABLE")?.let(Path::of),
+                modelPath = resolve(MODEL_PROPERTY, "AIVT_VISUAL_MODEL")?.let(Path::of),
+                mmprojPath = resolve(MMPROJ_PROPERTY, "AIVT_VISUAL_MMPROJ")?.let(Path::of),
+                timeoutMillis = resolve(TIMEOUT_PROPERTY, "AIVT_VISUAL_TIMEOUT_MILLIS")?.let { value ->
                     value.toLongOrNull() ?: throw IllegalArgumentException("$TIMEOUT_PROPERTY must be an integer.")
                 } ?: DEFAULT_TIMEOUT_MILLIS,
-                runtimeVersion = System.getProperty(RUNTIME_VERSION_PROPERTY)?.takeIf(String::isNotBlank)
-                    ?: "NOT_RECORDED"
+                runtimeVersion = resolve(RUNTIME_VERSION_PROPERTY, "AIVT_VISUAL_RUNTIME_VERSION") ?: "NOT_RECORDED"
             )
+        }
     }
 }
 
@@ -132,15 +136,19 @@ class LlamaCppVisualGroundingProvider(
             return VisualGroundingPreflight(
                 GroundingProviderAvailability.NOT_CONFIGURED,
                 "visual_provider_not_configured",
-                metadata
+                metadata + ("failureCategory" to "NOT_CONFIGURED")
             )
         }
-        val paths = listOf(configuration.executablePath, configuration.modelPath, configuration.mmprojPath)
-        if (paths.any { it == null }) {
+        val paths = listOf(
+            "executable" to configuration.executablePath,
+            "model" to configuration.modelPath,
+            "mmproj" to configuration.mmprojPath
+        )
+        if (paths.any { it.second == null }) {
             return VisualGroundingPreflight(
                 GroundingProviderAvailability.NOT_CONFIGURED,
                 "visual_runtime_or_model_path_not_configured",
-                metadata
+                metadata + ("failureCategory" to "NOT_CONFIGURED")
             )
         }
         if (runner.requiresHostMemoryGuard &&
@@ -153,19 +161,32 @@ class LlamaCppVisualGroundingProvider(
                 } else {
                     "insufficient available memory for safe local inference"
                 },
-                metadata
+                metadata + ("failureCategory" to "HOST_BLOCKED")
             )
         }
-        if (paths.filterNotNull().any { !Files.isRegularFile(it) }) {
+        val missing = paths.filter { it.second != null && !Files.isRegularFile(it.second!!) }.map { it.first }
+        if (missing.isNotEmpty()) {
+            val failureCategory = when {
+                "executable" in missing -> "RUNTIME_NOT_FOUND"
+                "model" in missing -> "MODEL_NOT_FOUND"
+                "mmproj" in missing -> "PROJECTOR_NOT_FOUND"
+                else -> "PROVIDER_UNAVAILABLE"
+            }
             return VisualGroundingPreflight(
                 GroundingProviderAvailability.UNAVAILABLE,
-                "configured_runtime_or_model_file_missing",
-                metadata
+                "configured_runtime_or_model_file_missing: ${missing.joinToString(", ")}",
+                metadata + mapOf(
+                    "failureCategory" to failureCategory,
+                    "missingFiles" to missing.joinToString(",")
+                )
             )
         }
         return VisualGroundingPreflight(
             GroundingProviderAvailability.AVAILABLE,
-            metadata = metadata + ("guardDecision" to if (runner.requiresHostMemoryGuard) "PASS" else "NOT_APPLICABLE_TO_TEST_RUNNER")
+            metadata = metadata + mapOf(
+                "failureCategory" to "SUCCESS",
+                "guardDecision" to if (runner.requiresHostMemoryGuard) "PASS" else "NOT_APPLICABLE_TO_TEST_RUNNER"
+            )
         )
     }
 
@@ -179,7 +200,8 @@ class LlamaCppVisualGroundingProvider(
             ?: return statusResult(
                 VisualGroundingPreflight(
                     GroundingProviderAvailability.NOT_CONFIGURED,
-                    "target_description_missing"
+                    "target_description_missing",
+                    preflight.metadata + ("failureCategory" to "NOT_CONFIGURED")
                 ),
                 started
             )
@@ -190,7 +212,7 @@ class LlamaCppVisualGroundingProvider(
             val promptPath = temporaryDirectory.resolve("prompt.txt")
             val imageEncodingStarted = System.nanoTime()
             if (!ImageIO.write(request.screenshot, "png", imagePath.toFile())) {
-                return failureResult("screenshot_png_encoding_failed", started)
+                return failureResult("screenshot_png_encoding_failed", started, failureCategory = "IMAGE_INPUT_FAILED")
             }
             val imageEncodingMillis = (System.nanoTime() - imageEncodingStarted) / 1_000_000
             Files.writeString(promptPath, groundingPrompt(target))
@@ -200,11 +222,11 @@ class LlamaCppVisualGroundingProvider(
                     runner.run(configuration, imagePath, promptPath)
                 }
             } catch (e: TimeoutCancellationException) {
-                return failureResult("provider_timeout", started, imageEncodingMillis)
+                return failureResult("provider_timeout", started, imageEncodingMillis, failureCategory = "INFERENCE_TIMEOUT")
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                return failureResult(e.javaClass.simpleName, started, imageEncodingMillis)
+                return failureResult(e.javaClass.simpleName, started, imageEncodingMillis, failureCategory = "PROCESS_START_FAILED")
             }
             val latencyMillis = (System.nanoTime() - started) / 1_000_000
             val commonMetadata = mapOf(
@@ -230,7 +252,22 @@ class LlamaCppVisualGroundingProvider(
                     latencyMillis = latencyMillis,
                     metadata = commonMetadata + mapOf(
                         "status" to "provider_process_failed",
-                        "exitCode" to processResult.exitCode.toString()
+                        "exitCode" to processResult.exitCode.toString(),
+                        "failureCategory" to "PROCESS_EXIT_NONZERO"
+                    )
+                )
+            }
+            if (processResult.output.isBlank()) {
+                return VisualGroundingResult(
+                    semantic = null,
+                    geometry = null,
+                    providerId = providerId,
+                    availability = GroundingProviderAvailability.FAILURE,
+                    executionLocation = GroundingExecutionLocation.LOCAL,
+                    latencyMillis = latencyMillis,
+                    metadata = commonMetadata + mapOf(
+                        "status" to "empty_model_output",
+                        "failureCategory" to "EMPTY_MODEL_OUTPUT"
                     )
                 )
             }
@@ -243,7 +280,10 @@ class LlamaCppVisualGroundingProvider(
                     availability = GroundingProviderAvailability.FAILURE,
                     executionLocation = GroundingExecutionLocation.LOCAL,
                     latencyMillis = latencyMillis,
-                    metadata = commonMetadata + ("status" to "invalid_coordinate_output")
+                    metadata = commonMetadata + mapOf(
+                        "status" to "invalid_coordinate_output",
+                        "failureCategory" to "OUTPUT_PARSE_FAILED"
+                    )
                 )
             val normalized = GroundingPoint(point.x / MODEL_COORDINATE_SCALE, point.y / MODEL_COORDINATE_SCALE)
             val pixel = GroundingPoint(
@@ -262,6 +302,7 @@ class LlamaCppVisualGroundingProvider(
                 latencyMillis = latencyMillis,
                 metadata = commonMetadata + mapOf(
                     "status" to "point_returned",
+                    "failureCategory" to "SUCCESS",
                     "normalizedPoint" to "${normalized.x},${normalized.y}",
                     "pixelPoint" to "${pixel.x},${pixel.y}",
                     "cropWidthPx" to request.screenshot.width.toString(),
@@ -269,7 +310,7 @@ class LlamaCppVisualGroundingProvider(
                 )
             )
         } catch (e: IOException) {
-            return failureResult(e.javaClass.simpleName, started)
+            return failureResult(e.javaClass.simpleName, started, failureCategory = "PROCESS_START_FAILED")
         } finally {
             Files.deleteIfExists(temporaryDirectory.resolve("crop.png"))
             Files.deleteIfExists(temporaryDirectory.resolve("prompt.txt"))
@@ -286,7 +327,8 @@ class LlamaCppVisualGroundingProvider(
         latencyMillis = (System.nanoTime() - started) / 1_000_000,
         metadata = preflight.metadata + mapOf(
             "status" to preflight.availability.name,
-            "diagnostic" to preflight.diagnostic.orStatus(preflight.availability.name)
+            "diagnostic" to preflight.diagnostic.orStatus(preflight.availability.name),
+            "failureCategory" to (preflight.metadata["failureCategory"] ?: preflight.availability.name)
         )
     )
 
@@ -299,7 +341,8 @@ class LlamaCppVisualGroundingProvider(
     private fun failureResult(
         diagnostic: String,
         started: Long,
-        imageEncodingMillis: Long? = null
+        imageEncodingMillis: Long? = null,
+        failureCategory: String = "PROVIDER_FAILURE"
     ) = VisualGroundingResult(
         semantic = null,
         geometry = null,
@@ -310,6 +353,7 @@ class LlamaCppVisualGroundingProvider(
         metadata = buildMap {
             put("status", "provider_failure")
             put("diagnostic", diagnostic.take(80))
+            put("failureCategory", failureCategory)
             put("cropPngEncodingTimeMs", imageEncodingMillis?.toString().orStatus("NOT_RECORDED"))
         }
     )
@@ -328,19 +372,33 @@ class LlamaCppVisualGroundingProvider(
         const val MINIMUM_AVAILABLE_MEMORY_BYTES = 3_629_247_837L
         const val MAX_RECORDED_OUTPUT_CHARS = 4096
         private val POINT_LINE = Regex(
-            """^\s*\(\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s*,\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s*\)\s*$"""
+            """^\s*(?:(?:Answer|Point|Target|Coordinates?)\s*:\s*)?\(\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s*,\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s*\)\s*(?:<\|[a-zA-Z0-9_-]+\|>)?\s*$"""
+        )
+        private val EMBEDDED_POINT = Regex(
+            """\(\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s*,\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s*\)"""
         )
 
         fun parseModelPoint(output: String): GroundingPoint? {
-            val matchingLines = output.lineSequence().mapNotNull { line ->
+            val strictLines = output.lineSequence().mapNotNull { line ->
                 POINT_LINE.matchEntire(line)?.groupValues?.drop(1)?.let { values ->
                     val x = values[0].toDoubleOrNull()
                     val y = values[1].toDoubleOrNull()
                     if (x == null || y == null) null else GroundingPoint(x, y)
                 }
             }.toList()
-            if (matchingLines.size != 1) return null
-            val point = matchingLines.single()
+            val points = if (strictLines.isNotEmpty()) {
+                strictLines
+            } else {
+                output.lineSequence().flatMap { line ->
+                    EMBEDDED_POINT.findAll(line).mapNotNull { match ->
+                        val x = match.groupValues[1].toDoubleOrNull()
+                        val y = match.groupValues[2].toDoubleOrNull()
+                        if (x == null || y == null) null else GroundingPoint(x, y)
+                    }
+                }.toList()
+            }
+            if (points.size != 1) return null
+            val point = points.single()
             if (!point.x.isFinite() || !point.y.isFinite()) return null
             if (point.x < 0.0 || point.y < 0.0 ||
                 point.x >= MODEL_COORDINATE_SCALE || point.y >= MODEL_COORDINATE_SCALE
@@ -443,10 +501,13 @@ private object LlamaCppMtmdCommandRunner : LlamaCppCommandRunner {
 private fun String?.orStatus(fallback: String): String = this ?: fallback
 
 fun defaultVisualGroundingProvider(): VisualGroundingProvider {
-    val configuration = LlamaCppGroundingConfiguration.fromSystemProperties()
-    return if (configuration.enabled) {
-        LlamaCppVisualGroundingProvider(configuration)
-    } else {
-        NotConfiguredVisualGroundingProvider()
+    val httpConfig = HttpVisualGroundingConfiguration.fromSystemProperties()
+    if (httpConfig.enabled && !httpConfig.endpoint.isNullOrBlank()) {
+        return HttpVisualGroundingProvider(httpConfig)
     }
+    val llamaConfig = LlamaCppGroundingConfiguration.fromSystemProperties()
+    if (llamaConfig.enabled) {
+        return LlamaCppVisualGroundingProvider(llamaConfig)
+    }
+    return NotConfiguredVisualGroundingProvider()
 }

@@ -10,5 +10,6 @@ data class SessionContext(
     val application: ApplicationType = ApplicationType.BLENDER,
     val startTimeMillis: Long = System.currentTimeMillis(),
     val lastCapturedFrame: CapturedFrame? = null,
-    val lastVisualContext: context.VisualContext? = null
+    val lastVisualContext: context.VisualContext? = null,
+    val lastObservedState: context.ObservedState? = null
 )

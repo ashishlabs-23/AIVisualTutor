@@ -187,4 +187,64 @@ class Phase5EvaluationTest {
             Files.deleteIfExists(outside)
         }
     }
+
+    @Test
+    fun visionOnlySuccessfulVisualInferenceIsEvaluatedAndCalculatesTargetIdentification() = runBlocking {
+        val image = BufferedImage(100, 100, BufferedImage.TYPE_INT_RGB)
+        try {
+            val router = EvidenceAdaptiveGroundingRouter(
+                uia = GroundingUiaProvider { error("UIA must not run in VISION_ONLY") },
+                ocr = GroundingOcrProvider { error("OCR must not run in VISION_ONLY") },
+                vision = GroundingVisionProvider { request, _ ->
+                    val obs = GroundingObservation(
+                        source = GroundingProviderId.VISION,
+                        candidateId = "vis-1",
+                        observedText = null,
+                        targetDescription = request.targetDescription.orEmpty(),
+                        box = GroundingBox(50.0, 40.0, 0.0, 0.0),
+                        originalBox = null,
+                        coordinateSpace = GroundingBoxSpace.SCREENSHOT_PIXELS,
+                        originalCoordinateSpace = GroundingBoxSpace.SCREENSHOT_PIXELS,
+                        providerConfidence = 0.90,
+                        textSimilarity = 0.0,
+                        sourceMetadata = mapOf("geometryKind" to "POINT"),
+                        executionId = request.executionId
+                    )
+                    GroundingProviderRun(
+                        provider = GroundingProviderId.VISION,
+                        status = GroundingProviderStatus.SUCCESS,
+                        latencyMillis = 15,
+                        observations = listOf(obs)
+                    )
+                }
+            )
+            val result = router.run(
+                GroundingRequest(
+                    screenshot = image,
+                    targetDescription = "Cube Object",
+                    mode = GroundingMode.VISION_ONLY,
+                    caseId = "case-vision-point"
+                )
+            )
+            assertEquals(EvidenceDecision.REFINE, result.decision)
+            assertEquals(GroundingDecisionReason.INSUFFICIENT_EVIDENCE, result.reason)
+            assertEquals(GroundingBox(50.0, 40.0, 0.0, 0.0), result.proposedBox)
+
+            val annotations = mapOf(
+                "case-vision-point" to GroundTruthAnnotation(
+                    caseId = "case-vision-point",
+                    screenshotReference = "fixture.png",
+                    targetDescription = "Cube Object",
+                    expectedPoint = 50.0 to 40.0
+                )
+            )
+            val metrics = GroundingResearchMetrics.evaluate(listOf(result), annotations)
+            assertEquals(1, metrics.cases)
+            assertEquals(1, metrics.evaluatedCases)
+            assertEquals(0, metrics.accepted)
+            assertEquals(0.0, metrics.coverage)
+        } finally {
+            image.flush()
+        }
+    }
 }

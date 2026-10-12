@@ -1,5 +1,8 @@
 package models
 
+import pedagogy.GuidanceStage
+import pedagogy.PedagogicalDecisionEvent
+
 /**
  * Deterministic domain events emitted during tutor lifecycle and user interactions.
  */
@@ -48,5 +51,18 @@ sealed interface TutorEvent {
         override val timestampMillis: Long = System.currentTimeMillis()
     ) : TutorEvent
 
-    data class VisualContextCreated(val visualContext: context.VisualContext, override val timestampMillis: Long = System.currentTimeMillis()) : TutorEvent
+    data class VisualContextCreated(
+        val visualContext: context.VisualContext,
+        override val timestampMillis: Long = System.currentTimeMillis()
+    ) : TutorEvent
+
+    data class PedagogicalStateChanged(
+        val event: PedagogicalDecisionEvent,
+        override val timestampMillis: Long = System.currentTimeMillis()
+    ) : TutorEvent
+
+    data class GuidanceStageChanged(
+        val stage: GuidanceStage,
+        override val timestampMillis: Long = System.currentTimeMillis()
+    ) : TutorEvent
 }

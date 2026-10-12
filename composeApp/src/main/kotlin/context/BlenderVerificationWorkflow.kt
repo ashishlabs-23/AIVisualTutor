@@ -1,5 +1,11 @@
 package context
 
+import adapter.ApplicationAdapter
+import adapter.EvidenceCategory
+import adapter.EvidenceProvenance
+import adapter.EvidenceReconciler
+import adapter.ObservationFreshness
+import adapter.ProvenanceEvidenceObservation
 import java.nio.charset.StandardCharsets
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
@@ -15,8 +21,22 @@ class BlenderVerificationWorkflow(
     private val provider: BlenderStateProvider = BlenderTcpStateProvider(),
     private val verifier: StateVerifier = StateVerifier(),
     private val resultStore: VerificationResultStore = VerificationResultStore.default(),
-    private val runWindow: Duration = Duration.ofMinutes(30)
+    private val runWindow: Duration = Duration.ofMinutes(30),
+    private val reconciler: EvidenceReconciler = EvidenceReconciler(stateVerifier = verifier)
 ) {
+    constructor(
+        applicationAdapter: ApplicationAdapter,
+        verifier: StateVerifier = StateVerifier(),
+        resultStore: VerificationResultStore = VerificationResultStore.default(),
+        runWindow: Duration = Duration.ofMinutes(30)
+    ) : this(
+        provider = if (applicationAdapter is BlenderStateProvider) applicationAdapter else BlenderTcpStateProvider(),
+        verifier = verifier,
+        resultStore = resultStore,
+        runWindow = runWindow,
+        reconciler = EvidenceReconciler(stateVerifier = verifier)
+    )
+
     init {
         require(!runWindow.isNegative && !runWindow.isZero) { "Verification run window must be positive." }
     }
@@ -56,23 +76,74 @@ class BlenderVerificationWorkflow(
             )
         }
         val observed = run.observedState(observation)
-        val evidence = listOf(
-            EvidenceObservation(
-                source = EvidenceSource.BLENDER,
-                capturedAt = observation.capturedAt,
-                available = observed != null,
-                details = observation.metadata + mapOf(
-                    "status" to observation.status.name,
-                    "sessionId" to (observation.sessionId ?: "unknown"),
-                    "sceneId" to (observation.sceneId ?: "unknown"),
-                    "complete" to (observation.metadata["complete"] ?: "false")
-                ),
-                diagnostic = observation.diagnostic
+        val snapshotVer = observation.metadata["snapshotVersion"]?.toLongOrNull()
+        val directProv = EvidenceProvenance(
+            category = EvidenceCategory.DIRECT_APPLICATION_STATE,
+            source = EvidenceSource.BLENDER,
+            capturedAt = observation.capturedAt,
+            snapshotVersion = snapshotVer,
+            sessionId = observation.sessionId,
+            isDirectFact = true,
+            freshness = if (observation.status == BlenderObservationStatus.AVAILABLE) ObservationFreshness.FRESH else ObservationFreshness.UNKNOWN,
+            confidence = if (observation.status == BlenderObservationStatus.AVAILABLE) 1.0 else 0.0,
+            diagnostic = observation.diagnostic
+        )
+        val directEvidence = ProvenanceEvidenceObservation(
+            provenance = directProv,
+            available = observed != null,
+            details = observation.metadata + mapOf(
+                "status" to observation.status.name,
+                "sessionId" to (observation.sessionId ?: "unknown"),
+                "sceneId" to (observation.sceneId ?: "unknown"),
+                "complete" to (observation.metadata["complete"] ?: "false"),
+                "mode" to (observation.mode ?: "unknown")
             )
         )
-        val result = verifier.verify(run.expected, baseline, observed, evidence)
+
+        val result = reconciler.reconcileAndVerify(
+            expected = run.expected,
+            baseline = baseline,
+            observed = observed,
+            rawEvidence = listOf(directEvidence)
+        )
         resultStore.persist(result)
         return result
+    }
+
+    /**
+     * Automatically monitors for state change events or deltas,
+     * then executes verification without requiring the user to manually click 'Verify Action'.
+     */
+    suspend fun autoVerifyAction(
+        run: VerificationRun,
+        pollIntervalMillis: Long = 300,
+        maxWaitMillis: Long = 10000
+    ): VerificationResult {
+        val baseline = requireNotNull(run.baseline) { "Verification run has no baseline." }
+        val startBaselineVersion = baseline.metadata["snapshotVersion"]?.toLongOrNull()
+        val deadline = System.currentTimeMillis() + maxWaitMillis
+
+        while (System.currentTimeMillis() < deadline) {
+            val observation = try {
+                provider.observe()
+            } catch (_: Exception) {
+                null
+            }
+
+            if (observation != null && observation.status == BlenderObservationStatus.AVAILABLE) {
+                val currentVersion = observation.metadata["snapshotVersion"]?.toLongOrNull()
+                val hasChanged = (currentVersion != null && startBaselineVersion != null && currentVersion > startBaselineVersion) ||
+                    observation.objects.size != baseline.objects.size ||
+                    observation.mode != baseline.mode
+
+                if (hasChanged) {
+                    break
+                }
+            }
+            kotlinx.coroutines.delay(pollIntervalMillis)
+        }
+
+        return verifyAction(run)
     }
 }
 

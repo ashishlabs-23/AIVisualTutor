@@ -81,9 +81,12 @@ class BlenderTcpStateProvider(
         }
         val complete = fields[7] == "true"
         val objects = ArrayList<ObjectObservation>(expectedCount)
-        repeat(expectedCount) {
+        repeat(expectedCount) { index ->
             val line = input.readUtf8Line()
                 ?: return unavailable(BlenderObservationStatus.FAILED, "Blender adapter returned a truncated object inventory.")
+            if (line == "END") {
+                return unavailable(BlenderObservationStatus.FAILED, "Blender adapter declared $expectedCount objects but stream terminated after $index records.")
+            }
             val objectFields = line.split('\t')
             if (objectFields.size != OBJECT_FIELD_COUNT || objectFields[0] != "OBJECT") {
                 return unavailable(BlenderObservationStatus.FAILED, "Blender adapter returned a malformed object record.")

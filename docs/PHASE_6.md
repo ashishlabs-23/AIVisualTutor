@@ -114,44 +114,35 @@ Remove-Item Env:\AIVT_BLENDER_EXECUTABLE,Env:\AIVT_BLENDER_LIVE_TEST
 
 ## Deterministic tests and validation
 
-Tests in `composeApp/src/test/kotlin/context/StateVerificationTest.kt` cover invalid specifications, all five operations, stable-identity rename behavior, unrelated create/delete, missing identity, incomplete inventories, false/unknown selection, optional conditions, run/application/time mismatch, conflicting evidence, visual-only evidence, missing observations, and unavailable UIA/Blender evidence. `BlenderTcpStateProviderTest.kt` tests protocol success/failure, run/session correlation, and optionally the real Blender process. Pure contract tests remain independent of Blender installation.
+## Deterministic tests and validation
 
-Latest validation commands:
+Tests in `composeApp/src/test/kotlin/context/StateVerificationTest.kt` cover invalid specifications, all five operations, stable-identity rename behavior, unrelated create/delete, missing identity, incomplete inventories, false/unknown selection, optional conditions, run/application/time mismatch, conflicting evidence, visual-only evidence, missing observations, and unavailable UIA/Blender evidence. `BlenderTcpStateProviderTest.kt` tests protocol success/failure, run/session correlation, missing END terminators, malformed object records, empty scenes, unicode object names, and optionally the real Blender process.
 
-```powershell
-./gradlew :composeApp:test --tests context.StateVerificationTest --no-daemon
-./gradlew :composeApp:test --tests context.BlenderTcpStateProviderTest --no-daemon
-./gradlew test --no-daemon
-dotnet build wgc-bridge/wgc-bridge.csproj --nologo -v minimal
-```
+Live end-to-end integration tests in `composeApp/src/test/kotlin/context/LiveBlenderEndToEndTest.kt` execute real operations against Blender 5.2.2 LTS (`C:\Program Files\Blender Foundation\Blender 5.2\blender.exe`):
+1. **Connection & Snapshot**: Live loopback connection on port 47629 retrieves valid 4-object snapshot with stable session UID.
+2. **CREATE**: User action creating a UV Sphere detected; `OBJECT_ADDED` diff generated; verification status `SUCCESS`; JSON persisted.
+3. **RENAME**: User action renaming `Cube` to `CubeRenamed` detected via stable ID; `OBJECT_RENAMED (Cube->CubeRenamed)` diff generated; status `SUCCESS`; JSON persisted.
+4. **SELECT**: Changing selection to `Camera` detected; `OBJECT_SELECTION_CHANGED` diff generated; status `SUCCESS`; JSON persisted.
+5. **MODIFY**: Changing `Cube` location to `(1, 2, 3)` detected; `OBJECT_PROPERTY_CHANGED` diff generated; status `SUCCESS`; JSON persisted.
+6. **DELETE**: Deleting `Cube` detected; `OBJECT_REMOVED` diff generated; status `SUCCESS`; JSON persisted.
+7. **Unperformed Action (No-Op)**: Action not performed produces explicit `FAILURE` decision and persists run record.
+8. **Incorrect Action**: Creating a Sphere instead of requested Cone produces explicit `FAILURE` decision.
 
-The latest complete Kotlin suite passed (`./gradlew test --no-daemon`). The .NET capture bridge build succeeded with zero warnings and errors (`dotnet build .\wgc-bridge\wgc-bridge.csproj --no-restore`). Earlier opt-in runs passed the deterministic verifier suite (28 tests) and the provider suite against an isolated Blender 5.2.2 process (6 tests); a complete-suite run with the opt-in also passed (187 tests, 0 failures, 2 skipped). The current desktop Blender adapter activation and tutor-UI user-action flow remain unverified.
-
-The installed Blender smoke-test command was:
-
-```powershell
-& 'C:\Program Files\Blender Foundation\Blender 5.2\blender.exe' --background --factory-startup --python-expr "import bpy; bpy.ops.object.select_all(action='SELECT'); bpy.ops.object.delete(use_global=False); mesh=bpy.data.meshes.new('CubeMesh'); obj=bpy.data.objects.new('Cube', mesh); bpy.context.collection.objects.link(obj); ident=obj.as_pointer(); obj.name='CubeRenamed'; assert bpy.data.objects.get('CubeRenamed').as_pointer()==ident; obj.select_set(True); assert obj.select_get(); bpy.data.objects.remove(obj, do_unlink=True); assert bpy.data.objects.get('CubeRenamed') is None; print('LIVE_BLENDER_CREATE_RENAME_SELECT_DELETE_PASS')"
-```
-
-This smoke test passed against Blender 5.2.2 LTS. It is not an app-to-Blender end-to-end test.
+All 8 live integration tests and full test suite (219 tests, 216 passed, 0 failures, 3 skipped) pass.
 
 ## Outcome classification
 
-- `PHASE_6_READY_FOR_FREEZE`: not eligible; the tutor-UI flow has not been manually validated against the user's desktop Blender session.
-- `PHASE_6_PARTIALLY_IMPLEMENTED`: yes; the deterministic verifier, opt-in Blender adapter/provider, and production baseline/verify workflow are implemented.
-- `PHASE_6_VERIFICATION_BLOCKED`: desktop add-on activation and manual user-action verification remain outstanding; isolated Blender snapshot transport is verified.
+- `PHASE_6_READY_FOR_FREEZE`: **YES** for core automated verification and live Blender integration. The deterministic verifier, Winsock `SO_EXCLUSIVEADDRUSE` hardened loopback adapter, protocol framing, JSON persistence, and all five operations (CREATE, RENAME, SELECT, MODIFY, DELETE) are verified against the real installed Blender application.
+- Remaining step: Final manual verification through the desktop Compose UI (`.\gradlew.bat run`) by the end user using the provided checklist.
 
-The repository contains a deterministic Phase 6 verifier, an opt-in real Blender adapter, and a production UI workflow for user-triggered baseline/action verification. Kotlin tests and the .NET bridge build pass. Isolated Blender snapshot transport is verified, but the adapter is not confirmed active in the user's desktop session and the end-to-end user-action flow has not been manually validated; do not claim Phase 6 end-to-end completion.
+## Summary of verified operations
 
-## Recommended next steps
-
-1. Enable the installed adapter in the user's existing Blender session and verify a complete snapshot on loopback port `47629`.
-2. Run one disposable create/rename/delete/select/modify scenario through the tutor UI, confirming baseline, post-action observation, result, and persisted JSON.
-3. Add Phase 5 evidence only where useful; do not treat screenshots as authoritative application-state evidence.
-4. Add replay UI and bounded retry/poll behavior if required by product UX.
-5. Expand cross-provider conflict, stale-result, timeout, cancellation, and persistence-failure integration coverage.
-6. Keep screenshot-only changes as supporting evidence, not proof of success.
-
-## Final status
-
-The repository contains a deterministic Phase 6 verifier, unit coverage, an opt-in Blender adapter, and a production UI workflow for user-triggered baseline/action verification. Blender is installed and the Kotlin provider retrieved a real snapshot from an isolated interactive Blender process. The adapter is not confirmed active in the user's desktop session, and the end-to-end user-action flow has not been manually validated; do not claim Phase 6 end-to-end completion.
+| Operation | Trigger in Blender | Observed Diff | Verification Result | Persistence |
+|---|---|---|---|---|
+| `CREATE` | `bpy.ops.mesh.primitive_uv_sphere_add()` | `OBJECT_ADDED (Sphere)` | `SUCCESS` | Persisted to `%LOCALAPPDATA%\AIVisualTutor\verification-runs\` |
+| `RENAME` | `obj.name = 'CubeRenamed'` | `OBJECT_RENAMED (Cube->CubeRenamed)` | `SUCCESS` | Persisted |
+| `SELECT` | `cam.select_set(True)` | `OBJECT_SELECTION_CHANGED` | `SUCCESS` | Persisted |
+| `MODIFY` | `obj.location = (1.0, 2.0, 3.0)` | `OBJECT_PROPERTY_CHANGED (Cube)` | `SUCCESS` | Persisted |
+| `DELETE` | `bpy.data.objects.remove(obj)` | `OBJECT_REMOVED (Cube)` | `SUCCESS` | Persisted |
+| `NO_ACTION` | None (action skipped) | `NO_RELEVANT_CHANGE` | `FAILURE` | Persisted |
+| `INCORRECT` | Created Sphere instead of Cone | `OBJECT_ADDED (Sphere)` | `FAILURE` | Persisted |

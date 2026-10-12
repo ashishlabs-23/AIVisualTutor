@@ -267,7 +267,6 @@ class GroundingCandidateGenerator(private val thresholds: GroundingThresholds = 
         return groups.mapIndexed { index, group ->
             val boxes = group.mapNotNull { it.box }
             val box = boxes.firstOrNull() // Preserve a source geometry; never average across modalities.
-            val text = group.maxOfOrNull { it.textSimilarity } ?: 0.0
             val agreement = if (group.size < 2) null else group.flatMapIndexed { i, item ->
                 group.drop(i + 1).map { other ->
                     val textAgree = textSimilarity(item.observedText.orEmpty(), other.observedText.orEmpty())
@@ -279,8 +278,16 @@ class GroundingCandidateGenerator(private val thresholds: GroundingThresholds = 
             }.average()
             // Equal source contribution avoids comparing uncalibrated provider confidence values.
             val textEvidence = group.filter { !it.observedText.isNullOrBlank() }.map { it.textSimilarity }
-            val score = if (group.isEmpty()) 0.0 else (textEvidence.takeIf { it.isNotEmpty() }?.average() ?: 0.0) * 0.80 +
-                (agreement ?: 0.0) * 0.20
+            val visualObservations = group.filter { it.source == GroundingProviderId.VISION }
+            val evidenceScore = if (textEvidence.isNotEmpty()) {
+                textEvidence.average()
+            } else if (visualObservations.isNotEmpty()) {
+                visualObservations.mapNotNull { it.providerConfidence }.average().takeIf { !it.isNaN() } ?: 0.85
+            } else 0.0
+            val score = if (group.isEmpty()) 0.0 else {
+                if (agreement != null) evidenceScore * 0.80 + agreement * 0.20 else evidenceScore
+            }
+            val text = group.maxOfOrNull { it.textSimilarity } ?: if (visualObservations.isNotEmpty()) 1.0 else 0.0
             GroundingCandidate("candidate-${index + 1}", group.toList(), box,
                 if (box == null) null else GroundingBoxSpace.SCREENSHOT_PIXELS, text, agreement, score.coerceIn(0.0, 1.0))
         }
@@ -341,6 +348,7 @@ fun iou(a: GroundingBox?, b: GroundingBox?): Double? {
 class GroundingConfidenceEvaluator {
     fun decide(candidates: List<GroundingCandidate>, request: GroundingRequest, runs: List<GroundingProviderRun>): Pair<EvidenceDecision, GroundingDecisionReason> {
         if (request.targetDescription.isNullOrBlank()) return EvidenceDecision.ABSTAIN to GroundingDecisionReason.INVALID_TARGET
+        val isVisionOnly = request.mode == GroundingMode.VISION_ONLY
         val allObservations = candidates.flatMap { it.observations }
         val supportedTextObservations = allObservations.filter {
             it.textSimilarity >= request.thresholds.minimumTextSimilarity && it.box != null &&
@@ -352,7 +360,7 @@ class GroundingConfidenceEvaluator {
                     text.source != point.source && (spatialAgreement(text, point) ?: 0.0) < request.thresholds.minimumIouForAssociation
                 }
         }
-        if (unsupportedVisualPoint) return EvidenceDecision.ESCALATE to GroundingDecisionReason.CONFLICTING_EVIDENCE
+        if (!isVisionOnly && unsupportedVisualPoint) return EvidenceDecision.ESCALATE to GroundingDecisionReason.CONFLICTING_EVIDENCE
         val conflicting = allObservations.any { first ->
             allObservations.any { second ->
                 val firstText = normalizeGroundingText(first.observedText.orEmpty())
@@ -461,7 +469,7 @@ class EvidenceAdaptiveGroundingRouter(
         }
         val candidates = candidateGeneratorFactory(request.thresholds).generate(runs.flatMap { it.observations })
         val (decision, reason) = confidenceEvaluator.decide(candidates, request, runs)
-        val selected = candidates.filter { it.box != null && it.targetSimilarity >= request.thresholds.minimumTextSimilarity }
+        val selected = candidates.filter { it.box != null && (request.mode == GroundingMode.VISION_ONLY || it.targetSimilarity >= request.thresholds.minimumTextSimilarity) }
             .sortedByDescending { it.score }.firstOrNull()?.takeIf { decision == EvidenceDecision.ACCEPT }
         val statuses = GroundingProviderId.values().associateWith { id -> runs.firstOrNull { it.provider == id }?.status ?: GroundingProviderStatus.NOT_REQUESTED }
         val result = GroundingResult(

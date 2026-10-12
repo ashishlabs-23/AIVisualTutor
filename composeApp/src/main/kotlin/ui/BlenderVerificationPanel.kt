@@ -29,7 +29,8 @@ fun BlenderVerificationPanel(
     isBusy: Boolean,
     feedback: String?,
     onCaptureBaseline: (ExpectedState) -> Unit,
-    onVerifyAction: (ExpectedState) -> Unit
+    onVerifyAction: (ExpectedState) -> Unit,
+    onAutoVerify: (ExpectedState) -> Unit = {}
 ) {
     var operation by remember { mutableStateOf(VerificationOperation.CREATE) }
     var targetName by remember { mutableStateOf("Cube") }
@@ -84,12 +85,17 @@ fun BlenderVerificationPanel(
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             TutorButton(
+                text = if (isBusy) "Monitoring..." else "Auto Verify",
+                enabled = !isBusy,
+                onClick = { onAutoVerify(expected) }
+            )
+            TutorButton(
                 text = if (isBusy && !baselineMatches) "Capturing..." else "Capture baseline",
                 enabled = !isBusy,
                 onClick = { onCaptureBaseline(expected) }
             )
             TutorButton(
-                text = if (isBusy && baselineMatches) "Verifying..." else "I completed it",
+                text = if (isBusy && baselineMatches) "Verifying..." else "Verify now",
                 enabled = !isBusy && baselineMatches,
                 onClick = { onVerifyAction(expected) }
             )

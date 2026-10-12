@@ -297,7 +297,7 @@ data class Phase5EvaluationReport(
             "\"meanTextRegionIoU\":${number(m.meanTextRegionIou)},\"meanTextCenterErrorPixels\":${number(m.meanTextCenterErrorPixels)}," +
             "\"pointLocalizationCases\":${m.pointLocalizationCases},\"pointLocalizationAccuracy\":${number(m.pointLocalizationAccuracy)}," +
             "\"meanPointErrorPixels\":${number(m.meanPointErrorPixels)},\"adaptiveEscalationRate\":${number(m.adaptiveEscalationRate)}," +
-            "\"meanEndToEndLatencyMillis\":${number(m.meanEndToEndLatencyMillis)}}"
+            "\"escalationRate\":${number(m.escalationRate)},\"meanEndToEndLatencyMillis\":${number(m.meanEndToEndLatencyMillis)}}"
 
     private fun strings(values: List<String>) = values.joinToString(prefix = "[", postfix = "]", transform = ::quote)
     private fun number(value: Double?) = value?.takeIf(Double::isFinite)?.toString() ?: "null"

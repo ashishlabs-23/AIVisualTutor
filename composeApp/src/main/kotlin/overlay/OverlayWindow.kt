@@ -170,8 +170,12 @@ fun OverlayWindowContent(
             } else {
                 region
             }
-            Highlight(region = adjustedRegion)
-            Arrow(region = adjustedRegion, label = "Step ${tutorState.currentStepIndex + 1}")
+            val steps = tutor.MockTutorData.stepsFor(tutorState.selectedApplication)
+            val currentStep = steps.getOrNull(tutorState.currentStepIndex)
+            val calloutText = currentStep?.title ?: "Step ${tutorState.currentStepIndex + 1}"
+            val calloutColor = if (tutorState.currentStepIndex == 0) Color(0xFF2563EB) else Color(0xFF10B981)
+            Highlight(region = adjustedRegion, color = calloutColor)
+            Arrow(region = adjustedRegion, label = calloutText, color = calloutColor)
         }
     }
 }

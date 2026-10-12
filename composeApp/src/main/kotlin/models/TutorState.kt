@@ -1,5 +1,9 @@
 package models
 
+import pedagogy.AdaptiveInstruction
+import pedagogy.GuidanceStage
+import pedagogy.PedagogicalOutcome
+
 /**
  * The complete state of the tutor UI at any point in time.
  *
@@ -13,5 +17,10 @@ data class TutorState(
     val currentStepIndex: Int = 0,
     val isPaused: Boolean = false,
     val screenAssistanceEnabled: Boolean = true,
-    val currentHighlight: HighlightRegion? = null
+    val currentHighlight: HighlightRegion? = null,
+    val guidanceStage: GuidanceStage = GuidanceStage.STAGE_1_EXACT_GUIDANCE,
+    val adaptiveInstruction: AdaptiveInstruction? = null,
+    val lastPedagogicalOutcome: PedagogicalOutcome? = null,
+    val adaptationReason: String? = null,
+    val competenceEstimate: Double? = null
 )

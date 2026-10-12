@@ -122,6 +122,133 @@ class BlenderTcpStateProviderTest {
     }
 
     @Test
+    fun readsACompleteFourObjectSnapshotOverLoopback() = runBlocking {
+        val sessionId = "blender-session-4"
+        val sceneId = "$sessionId:scene:1"
+        val response = listOf(
+            listOf("AIVT_STATE_V1", encode(sessionId), "2026-10-12T10:00:00Z", encode("5.2.2 LTS"),
+                encode(sceneId), encode("Scene"), encode("OBJECT"), "true", "4").joinToString("\t"),
+            listOf("OBJECT", encode("$sessionId:id:1"), encode("Cube"), encode("MESH"), encode("Scene"), "false", encode("0,0,0")).joinToString("\t"),
+            listOf("OBJECT", encode("$sessionId:id:2"), encode("Light"), encode("LIGHT"), encode("Scene"), "false", encode("4,1,5")).joinToString("\t"),
+            listOf("OBJECT", encode("$sessionId:id:3"), encode("Camera"), encode("CAMERA"), encode("Scene"), "false", encode("7,-6,4")).joinToString("\t"),
+            listOf("OBJECT", encode("$sessionId:id:4"), encode("Sphere"), encode("MESH"), encode("Scene"), "true", encode("1,2,3")).joinToString("\t"),
+            "END",
+            ""
+        ).joinToString("\n")
+
+        withAdapter(response) { port ->
+            val result = BlenderTcpStateProvider(port).observe()
+            assertEquals(BlenderObservationStatus.AVAILABLE, result.status)
+            assertEquals(4, result.objects.size)
+            assertEquals(setOf("Cube", "Light", "Camera", "Sphere"), result.objects.map { it.name }.toSet())
+            assertEquals(setOf("Sphere"), result.selectedObjects)
+        }
+    }
+
+    @Test
+    fun headerCountDeclaringMoreObjectsThanTransmittedIsAnExplicitFailure() = runBlocking {
+        // Header declares 4 objects, but only 3 are sent before END
+        val sessionId = "blender-session"
+        val response = listOf(
+            listOf("AIVT_STATE_V1", encode(sessionId), "2026-10-12T10:00:00Z", encode("5.2.2 LTS"),
+                encode("$sessionId:scene:1"), encode("Scene"), encode("OBJECT"), "true", "4").joinToString("\t"),
+            listOf("OBJECT", encode("$sessionId:id:1"), encode("Cube"), encode("MESH"), encode("Scene"), "false", encode("0,0,0")).joinToString("\t"),
+            listOf("OBJECT", encode("$sessionId:id:2"), encode("Light"), encode("LIGHT"), encode("Scene"), "false", encode("4,1,5")).joinToString("\t"),
+            listOf("OBJECT", encode("$sessionId:id:3"), encode("Camera"), encode("CAMERA"), encode("Scene"), "false", encode("7,-6,4")).joinToString("\t"),
+            "END",
+            ""
+        ).joinToString("\n")
+
+        withAdapter(response) { port ->
+            val result = BlenderTcpStateProvider(port).observe()
+            assertEquals(BlenderObservationStatus.FAILED, result.status)
+            assertTrue(result.diagnostic.orEmpty().contains("declared 4 objects but stream terminated"))
+        }
+    }
+
+    @Test
+    fun objectNamesWithSpacesAndUnicodeAreParsedCorrectly() = runBlocking {
+        val sessionId = "blender-session"
+        val response = listOf(
+            listOf("AIVT_STATE_V1", encode(sessionId), "2026-10-12T10:00:00Z", encode("5.2.2 LTS"),
+                encode("$sessionId:scene:1"), encode("Scene"), encode("OBJECT"), "true", "1").joinToString("\t"),
+            listOf("OBJECT", encode("$sessionId:id:1"), encode("UV Sphere \uD83D\uDE80"), encode("MESH"), encode("Scene"), "true", encode("0,0,0")).joinToString("\t"),
+            "END",
+            ""
+        ).joinToString("\n")
+
+        withAdapter(response) { port ->
+            val result = BlenderTcpStateProvider(port).observe()
+            assertEquals(BlenderObservationStatus.AVAILABLE, result.status)
+            assertEquals("UV Sphere \uD83D\uDE80", result.objects.single().name)
+        }
+    }
+
+    @Test
+    fun missingEndTerminatorCausesExplicitFailure() = runBlocking {
+        val sessionId = "blender-session"
+        // Valid header, 1 valid object, but missing END before connection closes
+        val response = listOf(
+            listOf("AIVT_STATE_V1", encode(sessionId), "2026-10-12T10:00:00Z", encode("5.2.2 LTS"),
+                encode("$sessionId:scene:1"), encode("Scene"), encode("OBJECT"), "true", "1").joinToString("\t"),
+            listOf("OBJECT", encode("$sessionId:id:1"), encode("Cube"), encode("MESH"), encode("Scene"), "true", encode("0,0,0")).joinToString("\t"),
+            ""
+        ).joinToString("\n")
+
+        withAdapter(response) { port ->
+            val result = BlenderTcpStateProvider(port).observe()
+            assertEquals(BlenderObservationStatus.FAILED, result.status)
+            assertTrue(result.diagnostic.orEmpty().contains("did not terminate correctly"))
+        }
+    }
+
+    @Test
+    fun malformedObjectRecordProducesFailureDiagnostic() = runBlocking {
+        val sessionId = "blender-session"
+        // Object record has insufficient fields
+        val response = listOf(
+            listOf("AIVT_STATE_V1", encode(sessionId), "2026-10-12T10:00:00Z", encode("5.2.2 LTS"),
+                encode("$sessionId:scene:1"), encode("Scene"), encode("OBJECT"), "true", "1").joinToString("\t"),
+            listOf("OBJECT", encode("$sessionId:id:1"), encode("Cube")).joinToString("\t"), // malformed, only 3 fields
+            "END",
+            ""
+        ).joinToString("\n")
+
+        withAdapter(response) { port ->
+            val result = BlenderTcpStateProvider(port).observe()
+            assertEquals(BlenderObservationStatus.FAILED, result.status)
+            assertTrue(result.diagnostic.orEmpty().contains("malformed object record"))
+        }
+    }
+
+    @Test
+    fun emptySceneSnapshotParsesCorrectly() = runBlocking {
+        val sessionId = "blender-session-empty"
+        val response = listOf(
+            listOf("AIVT_STATE_V1", encode(sessionId), "2026-10-12T10:00:00Z", encode("5.2.2 LTS"),
+                encode("$sessionId:scene:1"), encode("EmptyScene"), encode("OBJECT"), "true", "0").joinToString("\t"),
+            "END",
+            ""
+        ).joinToString("\n")
+
+        withAdapter(response) { port ->
+            val result = BlenderTcpStateProvider(port).observe()
+            assertEquals(BlenderObservationStatus.AVAILABLE, result.status)
+            assertEquals(0, result.objects.size)
+            assertEquals("EmptyScene", result.sceneName)
+        }
+    }
+
+    @Test
+    fun connectionRefusedProducesUnavailableStatus() = runBlocking {
+        // Find an unused local port
+        val unusedPort = ServerSocket(0, 1, InetAddress.getLoopbackAddress()).use { it.localPort }
+        val result = BlenderTcpStateProvider(unusedPort, timeoutMillis = 500).observe()
+        assertEquals(BlenderObservationStatus.UNAVAILABLE, result.status)
+        assertTrue(result.diagnostic.orEmpty().isNotBlank())
+    }
+
+    @Test
     fun liveBlenderSnapshotIsAvailableWhenExplicitlyOptedIn() = runBlocking {
         val executable = System.getenv("AIVT_BLENDER_EXECUTABLE")
         assumeTrue(

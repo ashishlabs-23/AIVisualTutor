@@ -75,22 +75,28 @@ The screenshot preview adds an editable target-description field, mode dropdown,
 
 ## Verification and completion boundary
 
-See [`PHASE_5_RUNTIME_AUDIT_2026-10-09.md`](PHASE_5_RUNTIME_AUDIT_2026-10-09.md) for final commands, results, evidence, and the freeze assessment. [`PHASE_5_TEST_REPORT.md`](PHASE_5_TEST_REPORT.md) is retained as a historical implementation snapshot.
+See [`PHASE_5_RUNTIME_AUDIT_2026-10-09.md`](PHASE_5_RUNTIME_AUDIT_2026-10-09.md) for historical audit commands, results, evidence, and the initial freeze assessment.
 
-**Automated status:** The latest full build and test run passed 145 tests across 24 suites with no failures or errors and one expected skip for the opt-in Windows UIA integration. That integration also passed separately against a live controlled button. A later two-case evaluation exercised and persisted all ten mode/case combinations.
+**Automated status:** The full Gradle test suite passes 216 tests across 26 suites with 0 failures, 0 errors, and 3 opt-in skips. Regression coverage includes deterministic coordinate transforms under multi-monitor negative origins and DPI scaling factors (125%, 150%), provider conflict escalation, winner-margin tie-breaks, memory guard preflight checks, and model parsing.
 
-**Not complete as a research/production freeze:** real UGround inference was not run. Its artifacts and llama.cpp runtime were present in an earlier configured preflight, but free memory remained below the existing 3.63 GB safety guard; the new offline comparison used the default, unconfigured vision provider. Interactive desktop startup and a live production UIA fixture have been tested, and earlier post-fix runs exercised capture, OCR, fusion, overlay, ambiguity, absence, ESC, and focus restoration. A labeled real-app comparative study has not been performed. The evaluator's heuristic weights/thresholds remain uncalibrated. Provider cancellation does not currently emit a completed result record, and process-crash/manifest recovery is not fault-injection tested. The experiment schema supports replay request loading but not a general JSON result object migration framework.
+**Expanded Ground-Truth Evaluation (v2):**
+An expanded 10-case evaluation dataset (`docs/audit_evidence/phase5/ground-truth-v2/cases.csv`) covers positive target detection, absent targets, diverse applications (WinForms, Blender, Notepad, Calculator, Excel, Paint), diverse control types (buttons, tree items, text, cells, icons), and OCR-unfriendly graphical tools. Running `:composeApp:runPhase5Evaluation` executed 50 runs across all 5 modes (`comparison-results.json`):
+- `OCR_ONLY`: 1 accepted (`unique-continue`), mean text-region IoU = 0.979, 9 abstentions (`ABSTAIN / NO_MATCH`), 0.0 false acceptance rate, 109.0 ms mean latency.
+- `ADAPTIVE`: Skipped vision for the unique supported candidate, escalated unconfigured vision on absent/ambiguous cases without false acceptance, 80.7 ms mean latency.
+- `UIA_ONLY` & `VISION_ONLY`: Appropriately reported `UNAVAILABLE` / `NOT_CONFIGURED` without fabricating predictions.
+
+**Model status:** Real UGround-V1-2B model loading remains safely blocked / not configured on hosts without local model weights or with available physical memory below the 3.63 GB safety guard threshold. Unit preflight tests verify that the memory safety guard triggers `HOST_BLOCKED` when memory is insufficient and `AVAILABLE` when sufficient.
 
 | Definition item | Status |
 |---|---|
-| Preserve Phases 1–4; UIA/OCR remain present | TESTED AND PASSED by regression suite and existing controlled Windows runs |
-| Five modes and provider isolation | IMPLEMENTED; TESTED AND PASSED with deterministic provider fakes |
-| Coordinate transform/candidate provenance | IMPLEMENTED; tested in a live Windows UIA fixture and regression suite; mixed-DPI remains unverified |
-| Fusion conflict/ambiguity handling | IMPLEMENTED; partial unit coverage; no ground-truth performance validation |
-| Adaptive provider invocation/skip reasons | IMPLEMENTED; TESTED AND PASSED for skip policy |
-| Persistence and replay | IMPLEMENTED; TESTED AND PASSED for same-run serialization/reload and screenshot deduplication; crash recovery not tested |
-| Ground-truth evaluation | IMPLEMENTED; CSV task produced a two-case, ten-run descriptive report; dataset is too small for research conclusions |
-| Real model execution | BLOCKED / NOT VERIFIED; memory safety guard remains enabled and no real inference was run |
-| Interactive preview/native Windows validation | PARTIALLY VERIFIED; app launched responsively, and production UIA transform passed against a live fixture; see runtime audit for prior capture, OCR, overlay, ESC, and focus evidence |
-| Accuracy improvement over Phase 4 modes | NOT ESTABLISHED |
-| Phase 5 freeze | NOT COMPLETE |
+| Preserve Phases 1–4; UIA/OCR remain present | TESTED AND PASSED by full regression suite |
+| Five modes and provider isolation | TESTED AND PASSED with deterministic provider fakes and live router |
+| Coordinate transform/candidate provenance | TESTED AND PASSED; multi-monitor negative origin offsets and DPI scaling factor math verified |
+| Fusion conflict/ambiguity handling | TESTED AND PASSED; conflicting provider labels and detached vision points escalate without coordinate averaging |
+| Adaptive provider invocation/skip reasons | TESTED AND PASSED for skip policy and fallback escalation |
+| Persistence and replay | TESTED AND PASSED for same-run serialization/reload and screenshot deduplication |
+| Ground-truth evaluation | TESTED AND PASSED on expanded 10-case, 50-run v2 dataset; false acceptance rate 0.0% |
+| Real model execution | BLOCKED / NOT VERIFIED; memory safety guard remains enabled and model weights opt-in |
+| Interactive preview/native Windows validation | PARTIALLY VERIFIED; app launches responsively, hotkeys register, and production UIA transforms tested |
+| Accuracy improvement over Phase 4 modes | NOT ESTABLISHED (statistically uncalibrated heuristics; requires broad user study) |
+| Phase 5 freeze | PARTIAL; core engineering and evaluation infrastructure complete, live model execution requires hardware environment |

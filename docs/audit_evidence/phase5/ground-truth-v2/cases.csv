@@ -1,0 +1,11 @@
+caseId,screenshotPath,targetDescription,expectedTargetIdentity,expectedGeometry,x,y,width,height,coordinateSpace,expectedAbsent,notes,windowHandle,pid,applicationName,processName,windowX,windowY,windowWidth,windowHeight,selectedX,selectedY,selectedWidth,selectedHeight,textX,textY,textWidth,textHeight
+unique-continue,unique-button.png,Continue,Continue,BOX,280,228,180,64,SCREENSHOT_PIXELS,false,"Positive target: Full GUI button outline on WinForms/WPF dialog. Inclusive extents x=280..459, y=228..291.",,,,,,,,,,,,,323,251,94,17
+absent-archive,unique-button.png,Archive,,ABSENT,,,,,SCREENSHOT_PIXELS,true,"Negative target on dialog; target is visibly absent. Tests correct abstention.",,,,,,,,,,,,,,,,
+absent-settings,unique-button.png,Settings,,ABSENT,,,,,SCREENSHOT_PIXELS,true,"Negative target on dialog; target is visibly absent.",,,,,,,,,,,,,,,,
+blender-cube-outliner,blender-outliner.png,Cube,Cube,BOX,35,5,70,30,SCREENSHOT_PIXELS,false,"Positive target: Blender Outliner structured text item.",,,Blender,blender.exe,,,,,,,,,40,10,60,20
+blender-outliner-absent-light,blender-outliner.png,Sun Light,,ABSENT,,,,,SCREENSHOT_PIXELS,true,"Negative target: Light object is absent in this outliner crop.",,,Blender,blender.exe,,,,,,,,,,,,
+calc-enter-button,calc-button.png,Enter,Enter,BOX,10,5,60,40,SCREENSHOT_PIXELS,false,"Positive target: Calculator button control.",,,Calculator,CalculatorApp.exe,,,,,,,,,15,10,50,30
+notepad-highlighted-text,notepad-text.png,Read the highlighted text,Read,BOX,10,10,480,100,SCREENSHOT_PIXELS,false,"Positive target: Dense text in Notepad text editor; OCR-friendly.",,,Notepad,notepad.exe,,,,,,,,,20,20,460,80
+paint-icon-tool,paint-icon.png,Open the Add menu,,BOX,0,0,48,48,SCREENSHOT_PIXELS,false,"Icon-only target: Paint toolbar tool without textual label; OCR-unfriendly.",,,Paint,mspaint.exe,,,,,,,,,,,,
+excel-cell-b2,excel-cell.png,Select cell B2,B2,BOX,0,0,90,28,SCREENSHOT_PIXELS,false,"Positive target: Small grid spreadsheet cell in Excel.",,,Excel,excel.exe,,,,,,,,,,,,
+absent-export-excel,excel-cell.png,Export PDF,,ABSENT,,,,,SCREENSHOT_PIXELS,true,"Negative target: Export action absent in cell crop.",,,Excel,excel.exe,,,,,,,,,,,,

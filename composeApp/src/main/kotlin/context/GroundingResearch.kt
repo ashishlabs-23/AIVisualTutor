@@ -58,7 +58,8 @@ data class GroundingMetrics(
     val meanTextCenterErrorPixels: Double? = null,
     val pointLocalizationCases: Int = 0,
     val pointLocalizationAccuracy: Double? = null,
-    val meanPointErrorPixels: Double? = null
+    val meanPointErrorPixels: Double? = null,
+    val escalationRate: Double? = null
 )
 
 /** Provider failures are reported separately and excluded from grounding-accuracy denominators. */
@@ -157,7 +158,8 @@ object GroundingResearchMetrics {
                         } == true
                     }.toDouble() / pointCases.size
                 },
-            meanPointErrorPixels = pointMeasurements.takeIf { it.isNotEmpty() }?.average()
+            meanPointErrorPixels = pointMeasurements.takeIf { it.isNotEmpty() }?.average(),
+            escalationRate = evaluated.ratioOrNull(evaluated.count { it.first.decision == EvidenceDecision.ESCALATE })
         )
     }
 
@@ -165,7 +167,7 @@ object GroundingResearchMetrics {
         if (truth.expectedAbsent) run.decision == EvidenceDecision.ABSTAIN && run.reason == GroundingDecisionReason.NO_MATCH
         else run.decision == EvidenceDecision.ACCEPT && (
             truth.expectedTargetIdentity?.let { candidateMatchesIdentity(run.selectedCandidate, it) }
-                ?: ((run.selectedCandidate?.targetSimilarity ?: 0.0) >= run.configuration.minimumTextSimilarity)
+                ?: (run.mode == GroundingMode.VISION_ONLY || (run.selectedCandidate?.targetSimilarity ?: 0.0) >= run.configuration.minimumTextSimilarity)
             )
 
     private fun candidateMatchesIdentity(candidate: GroundingCandidate?, expected: String): Boolean =

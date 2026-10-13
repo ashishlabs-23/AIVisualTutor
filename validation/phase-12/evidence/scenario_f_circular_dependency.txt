@@ -1,0 +1,6 @@
+=== SCENARIO F: CIRCULAR DEPENDENCY ===
+Timestamp: 2026-10-13T05:42:31.427570Z
+Validation Status: INVALID
+Cyclic Dependency Errors:
+ - Circular dependency detected: step_alpha -> step_beta -> step_alpha
+Explanation: Plan is invalid: Circular dependency detected: step_alpha -> step_beta -> step_alpha.

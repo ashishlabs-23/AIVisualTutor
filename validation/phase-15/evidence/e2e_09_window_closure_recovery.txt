@@ -1,0 +1,6 @@
+=== E2E-09: BLENDER WINDOW CLOSURE AND RECOVERY ===
+Timestamp: 2026-10-13T07:29:12.368510600Z
+Closed State Diagnostic: Blender is not running. Please launch Blender and open your project.
+Retry Permitted: true
+Reopened Window HWND: 8888
+Reopened Handle Valid: true

@@ -9,8 +9,12 @@ import context.TargetPositionResult
 import context.VerificationResult
 import context.VisualContext
 import java.awt.image.BufferedImage
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.launch
 import models.ApplicationType
 import models.HighlightRegion
 import models.SessionContext
@@ -20,6 +24,7 @@ import models.TutorStep
 import pedagogy.AdaptivePedagogicalEngine
 import pedagogy.GuidanceStage
 import pedagogy.LearningTask
+import java.util.UUID
 
 /**
  * Owns the single [TutorState] instance and coordinates UI state mutations
@@ -30,10 +35,16 @@ class TutorController(
     val targetPositioningService: DynamicTargetPositioningService = DynamicTargetPositioningService(),
     val goalPlanner: UserGoalPlanner = UserGoalPlanner(),
     loadMockTutorialByDefault: Boolean = false,
-    screenshotHelpCoordinatorFactory: ((TutorController) -> ScreenshotHelpCoordinator)? = null
+    screenshotHelpCoordinatorFactory: ((TutorController) -> ScreenshotHelpCoordinator)? = null,
+    recoveryCoordinatorFactory: ((TutorController) -> ClosedLoopRecoveryCoordinator)? = null
 ) {
+    private val controllerScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
     val screenshotHelpCoordinator: ScreenshotHelpCoordinator =
         screenshotHelpCoordinatorFactory?.invoke(this) ?: ScreenshotHelpCoordinator(this)
+
+    val recoveryCoordinator: ClosedLoopRecoveryCoordinator =
+        recoveryCoordinatorFactory?.invoke(this) ?: ClosedLoopRecoveryCoordinator(this)
 
     var sessionContext by mutableStateOf(SessionContext())
         private set
@@ -43,8 +54,20 @@ class TutorController(
     var state by mutableStateOf(TutorState())
         private set
 
+    val goalProgressTracker: GoalProgressTracker = GoalProgressTracker()
+
+    var goalProgressState by mutableStateOf(goalProgressTracker.getCurrentState())
+        private set
+
     var activePlan by mutableStateOf<UserGoalPlan?>(null)
         private set
+
+    internal fun setActivePlanForTesting(plan: UserGoalPlan?) {
+        activePlan = plan
+        if (plan != null) {
+            goalProgressState = goalProgressTracker.initializePlan(plan, preserveExistingProgress = false)
+        }
+    }
 
     var hasLoadedMockTutorial by mutableStateOf(loadMockTutorialByDefault)
         private set
@@ -100,6 +123,7 @@ class TutorController(
         }
         val plan = goalPlanner.planGoal(trimmed, ApplicationType.BLENDER)
         activePlan = plan
+        goalProgressState = goalProgressTracker.initializePlan(plan, preserveExistingProgress = false)
 
         if (state.selectedApplication != plan.application) {
             state = state.copy(selectedApplication = plan.application)
@@ -122,6 +146,48 @@ class TutorController(
                 adaptationReason = pedagogicalEngine.state.adaptationReason,
                 competenceEstimate = pedagogicalEngine.state.competenceEstimate
             )
+            recoveryCoordinator.reset()
+            recoveryCoordinator.onStepChanged(0)
+        }
+
+        return plan
+    }
+
+    /**
+     * Safely updates to a revised user goal plan, preserving valid completed progress
+     * and incrementing plan version to invalidate in-flight stale operations.
+     */
+    fun replanGoal(revisedGoalText: String): UserGoalPlan? {
+        val trimmed = revisedGoalText.trim()
+        if (trimmed.isBlank()) {
+            return null
+        }
+        val plan = goalPlanner.planGoal(trimmed, ApplicationType.BLENDER)
+        activePlan = plan
+        goalProgressState = goalProgressTracker.replan(plan)
+        recoveryCoordinator.reset()
+
+        val steps = plan.toTutorSteps()
+        if (steps.isNotEmpty()) {
+            val completedIds = goalProgressTracker.getCompletedStepIds()
+            val incompleteIndex = plan.steps.indexOfFirst { it.stepId !in completedIds }
+            val targetIndex = (if (incompleteIndex >= 0) incompleteIndex else 0).coerceIn(0, steps.lastIndex)
+            val targetStep = steps[targetIndex]
+            val targetTask = targetStep.toLearningTask()
+            val initialInstruction = pedagogicalEngine.onTaskSwitched(
+                newTask = targetTask,
+                visualContext = sessionContext.lastVisualContext
+            )
+
+            state = state.copy(
+                currentStepIndex = targetIndex,
+                guidanceStage = initialInstruction.stage,
+                adaptiveInstruction = initialInstruction,
+                currentHighlight = initialInstruction.targetRegion ?: targetStep.targetRegion,
+                adaptationReason = pedagogicalEngine.state.adaptationReason,
+                competenceEstimate = pedagogicalEngine.state.competenceEstimate
+            )
+            recoveryCoordinator.onStepChanged(targetIndex)
         }
 
         return plan
@@ -134,7 +200,10 @@ class TutorController(
     fun clearUserGoal() {
         if (activePlan == null) return
         activePlan = null
+        goalProgressTracker.initializePlan(UserGoalPlan("", steps = emptyList()))
+        goalProgressState = goalProgressTracker.getCurrentState()
         screenshotHelpCoordinator.resetSync()
+        recoveryCoordinator.reset()
 
         if (hasLoadedMockTutorial) {
             val steps = MockTutorData.stepsFor(state.selectedApplication)
@@ -190,6 +259,8 @@ class TutorController(
             adaptationReason = pedagogicalEngine.state.adaptationReason,
             competenceEstimate = pedagogicalEngine.state.competenceEstimate
         )
+        recoveryCoordinator.reset()
+        recoveryCoordinator.onStepChanged(0)
     }
 
     /** The step currently being shown to the user, or null if no tutorial is active. */
@@ -247,22 +318,67 @@ class TutorController(
      */
     fun recordVerificationResult(result: VerificationResult, expected: context.ExpectedState? = null) {
         val resolvedTask = resolveTaskForVerification(result, expected)
-        val decision = pedagogicalEngine.onVerificationResult(
-            task = resolvedTask,
-            result = result,
-            visualContext = sessionContext.lastVisualContext
-        )
 
         // If the verified task corresponds to the current step, update UI adaptive instruction
         val step = currentStep
         val isCurrentStepTask = step != null && resolvedTask.taskId == step.taskId
-        val isCurrentStepOperation = step != null && step.expectedState != null && step.expectedState?.operation == result.operation
+        val isCurrentStepOperation = step != null && (
+            (step.expectedState != null && step.expectedState?.operation == result.operation) ||
+            (step.expectedState == null && expected == null)
+        )
         val isVerifiedCurrentStep = isCurrentStepTask || isCurrentStepOperation
+
+        val plan = activePlan
+        val planStep = plan?.steps?.getOrNull(state.currentStepIndex)
+        val stepId = planStep?.stepId ?: "step_${state.currentStepIndex + 1}"
+
+        // Diagnose failure root cause if applicable (Rule 2: distinguish learner vs infrastructure)
+        val diag = if (result.status == context.VerificationStatus.FAILURE && isVerifiedCurrentStep) diagnoseCurrentStep() else null
+        val (mismatchCategory, failureCause) = when (result.status) {
+            context.VerificationStatus.SUCCESS -> null to pedagogy.FailureCause.LEARNER_ACTION
+            context.VerificationStatus.UNCERTAIN -> null to pedagogy.FailureCause.UNCERTAIN_EVIDENCE
+            context.VerificationStatus.FAILURE -> {
+                if (diag?.hasMismatch == true && diag.primaryMismatch != null) {
+                    diag.primaryMismatch.category.name to pedagogy.FailureCause.LEARNER_ACTION
+                } else if (result.explanation.contains("telemetry", ignoreCase = true) ||
+                    result.explanation.contains("socket", ignoreCase = true) ||
+                    result.explanation.contains("disconnect", ignoreCase = true)
+                ) {
+                    "InfrastructureFailure" to pedagogy.FailureCause.INFRASTRUCTURE_OR_PROVIDER
+                } else {
+                    (diag?.primaryMismatch?.category?.name ?: "Mismatch") to pedagogy.FailureCause.LEARNER_ACTION
+                }
+            }
+        }
+
+        val event = pedagogy.LearningEvent.OutcomeVerified(
+            eventId = if (result.runId.isNotBlank()) "event_${result.runId}" else UUID.randomUUID().toString(),
+            learnerId = pedagogicalEngine.state.learnerId,
+            sessionId = sessionContext.hashCode().toString(),
+            goalId = plan?.planId,
+            planVersion = goalProgressTracker.planVersion,
+            stepId = stepId,
+            taskId = resolvedTask.taskId,
+            skillId = resolvedTask.skillId,
+            result = result,
+            mismatchCategory = mismatchCategory,
+            failureCause = failureCause
+        )
+
+        val decision = pedagogicalEngine.ingestLearningEvent(
+            event = event,
+            task = resolvedTask,
+            visualContext = sessionContext.lastVisualContext
+        )
+
+        // Asynchronously persist verified progress off UI thread (Rule 4 / Part 5)
+        controllerScope.launch(Dispatchers.IO) {
+            pedagogicalEngine.persistState()
+        }
 
         var customRationale = decision.rationale
         if (result.status == context.VerificationStatus.FAILURE && isVerifiedCurrentStep) {
-            val diag = diagnoseCurrentStep()
-            if (diag.hasMismatch && diag.primaryMismatch != null) {
+            if (diag?.hasMismatch == true && diag.primaryMismatch != null) {
                 customRationale = "Mismatch: ${diag.primaryMismatch.explanation}. Suggestion: ${diag.primaryMismatch.suggestedAction.description}"
             }
         } else if (result.status == context.VerificationStatus.UNCERTAIN && isVerifiedCurrentStep) {
@@ -285,9 +401,93 @@ class TutorController(
 
         // Closed-loop step progression: advance only on SUCCESS of the active step
         if (result.status == context.VerificationStatus.SUCCESS && isVerifiedCurrentStep) {
+            if (plan != null) {
+                goalProgressState = goalProgressTracker.recordStepVerification(
+                    stepId = stepId,
+                    verified = true,
+                    operationPlanVersion = goalProgressTracker.planVersion
+                )
+            }
             if (state.currentStepIndex < stepsForCurrentApp().lastIndex) {
                 nextStep()
             }
+        } else if (result.status == context.VerificationStatus.FAILURE && isVerifiedCurrentStep) {
+            if (plan != null) {
+                goalProgressState = goalProgressTracker.recordStepVerification(
+                    stepId = stepId,
+                    verified = false,
+                    operationPlanVersion = goalProgressTracker.planVersion
+                )
+            }
+        }
+    }
+
+    /**
+     * Updates explicit learner preferences and adapts current guidance accordingly.
+     */
+    fun updateLearnerPreferences(preferences: pedagogy.LearnerPreferences) {
+        val decision = pedagogicalEngine.updatePreferences(preferences)
+        val step = currentStep
+        state = state.copy(
+            guidanceStage = decision.newStage,
+            adaptiveInstruction = if (step != null) decision.instruction else state.adaptiveInstruction,
+            adaptationReason = decision.rationale
+        )
+        controllerScope.launch(Dispatchers.IO) {
+            pedagogicalEngine.persistState()
+        }
+    }
+
+    /**
+     * Requests a conceptual hint for the active step, transitioning guidance to STAGE_2_CONCEPTUAL_HINT
+     * and updating active instruction and overlay markup with hint text.
+     */
+    fun requestHint(): String? {
+        val step = currentStep ?: return null
+        val task = step.toLearningTask()
+        val hintText = step.conceptualHint?.takeIf { it.isNotBlank() } ?: step.instruction
+        val targetRegion = step.targetRegion ?: state.currentHighlight
+
+        val hintInstruction = pedagogy.AdaptiveInstruction(
+            taskId = task.taskId,
+            stage = GuidanceStage.STAGE_2_CONCEPTUAL_HINT,
+            instructionText = "💡 Hint: $hintText",
+            targetControlName = step.targetControlName ?: step.title,
+            targetRegion = targetRegion,
+            conceptSummary = hintText,
+            adaptationRationale = "Learner requested a hint for '${step.title}'."
+        )
+
+        state = state.copy(
+            guidanceStage = GuidanceStage.STAGE_2_CONCEPTUAL_HINT,
+            adaptiveInstruction = hintInstruction,
+            currentHighlight = targetRegion,
+            screenAssistanceEnabled = true,
+            adaptationReason = "💡 Hint: $hintText"
+        )
+        mutableEvents.tryEmit(TutorEvent.GuidanceStageChanged(GuidanceStage.STAGE_2_CONCEPTUAL_HINT))
+        return hintText
+    }
+
+    /**
+     * Toggles learner instruction detail preference (Normal, Concise, Detailed).
+     */
+    fun setDetailPreference(detailPreference: pedagogy.DetailPreference) {
+        updateLearnerPreferences(pedagogicalEngine.state.preferences.copy(detailPreference = detailPreference))
+    }
+
+    /**
+     * Explicitly clears learner progress across session and disk persistence.
+     */
+    fun clearLearnerProgress() {
+        pedagogicalEngine.reset()
+        state = state.copy(
+            guidanceStage = pedagogy.GuidanceStage.STAGE_1_EXACT_GUIDANCE,
+            adaptationReason = pedagogicalEngine.state.adaptationReason,
+            competenceEstimate = 0.0
+        )
+        controllerScope.launch(Dispatchers.IO) {
+            pedagogicalEngine.persistence?.clear(pedagogicalEngine.state.learnerId)
         }
     }
 
@@ -329,9 +529,14 @@ class TutorController(
 
     private fun resolveTaskForVerification(result: VerificationResult, expected: context.ExpectedState?): LearningTask {
         val step = currentStep
-        // 1. If current step's expected state matches the result operation, use it
-        if (step != null && step.expectedState != null && step.expectedState?.operation == result.operation) {
-            return step.toLearningTask()
+        // 1. If current step matches the result operation or matching expected state, use it
+        if (step != null) {
+            val opMatches = step.expectedState != null && step.expectedState?.operation == result.operation
+            val expectedMatches = expected != null && step.expectedState == expected
+            val bothNull = expected == null && step.expectedState == null
+            if (opMatches || expectedMatches || bothNull) {
+                return step.toLearningTask()
+            }
         }
         // 2. If any step in current application matches the operation and target name, use it
         val matchingStep = stepsForCurrentApp().find {
@@ -398,6 +603,8 @@ class TutorController(
                 adaptationReason = null
             )
         }
+        recoveryCoordinator.reset()
+        recoveryCoordinator.onStepChanged(0)
         mutableEvents.tryEmit(TutorEvent.ApplicationChanged(application))
     }
 
@@ -407,6 +614,18 @@ class TutorController(
         val fromIndex = state.currentStepIndex
         val nextIndex = (fromIndex + 1).coerceAtMost(steps.lastIndex)
         if (fromIndex == nextIndex) return
+
+        val plan = activePlan
+        if (plan != null) {
+            val fromPlanStep = plan.steps.getOrNull(fromIndex)
+            if (fromPlanStep != null && fromPlanStep.expectedState == null) {
+                goalProgressState = goalProgressTracker.recordStepVerification(
+                    stepId = fromPlanStep.stepId,
+                    verified = true,
+                    operationPlanVersion = goalProgressTracker.planVersion
+                )
+            }
+        }
 
         val nextStep = steps[nextIndex]
         val nextTask = nextStep.toLearningTask()
@@ -423,6 +642,7 @@ class TutorController(
             adaptationReason = pedagogicalEngine.state.adaptationReason,
             competenceEstimate = pedagogicalEngine.state.competenceEstimate
         )
+        recoveryCoordinator.onStepChanged(nextIndex)
         mutableEvents.tryEmit(TutorEvent.StepAdvanced(fromIndex, nextIndex))
     }
 
@@ -448,7 +668,77 @@ class TutorController(
             adaptationReason = pedagogicalEngine.state.adaptationReason,
             competenceEstimate = pedagogicalEngine.state.competenceEstimate
         )
+        recoveryCoordinator.onStepChanged(prevIndex)
         mutableEvents.tryEmit(TutorEvent.StepRegressed(fromIndex, prevIndex))
+    }
+
+    /**
+     * Navigates directly to the specified step index.
+     */
+    fun goToStep(targetIndex: Int) {
+        val steps = stepsForCurrentApp()
+        if (steps.isEmpty()) return
+        val clamped = targetIndex.coerceIn(0, steps.lastIndex)
+        if (clamped == state.currentStepIndex) return
+
+        val fromIndex = state.currentStepIndex
+
+        val plan = activePlan
+        if (plan != null && clamped > fromIndex) {
+            for (i in fromIndex until clamped) {
+                val pastStep = plan.steps.getOrNull(i)
+                if (pastStep != null && pastStep.expectedState == null) {
+                    goalProgressState = goalProgressTracker.recordStepVerification(
+                        stepId = pastStep.stepId,
+                        verified = true,
+                        operationPlanVersion = goalProgressTracker.planVersion
+                    )
+                }
+            }
+        }
+
+        val targetStep = steps[clamped]
+        val task = targetStep.toLearningTask()
+        val adaptiveInstruction = pedagogicalEngine.onTaskSwitched(
+            newTask = task,
+            visualContext = sessionContext.lastVisualContext
+        )
+
+        state = state.copy(
+            currentStepIndex = clamped,
+            guidanceStage = adaptiveInstruction.stage,
+            adaptiveInstruction = adaptiveInstruction,
+            currentHighlight = adaptiveInstruction.targetRegion ?: targetStep.targetRegion,
+            adaptationReason = pedagogicalEngine.state.adaptationReason,
+            competenceEstimate = pedagogicalEngine.state.competenceEstimate
+        )
+        recoveryCoordinator.onStepChanged(clamped)
+        if (clamped > fromIndex) {
+            mutableEvents.tryEmit(TutorEvent.StepAdvanced(fromIndex, clamped))
+        } else {
+            mutableEvents.tryEmit(TutorEvent.StepRegressed(fromIndex, clamped))
+        }
+    }
+
+    /**
+     * Checks if prerequisite steps for the current active step have been satisfied.
+     */
+    fun canExecuteCurrentStep(): Boolean {
+        val plan = activePlan ?: return true
+        val step = plan.steps.getOrNull(state.currentStepIndex) ?: return true
+        return goalProgressTracker.canExecuteStep(step)
+    }
+
+    /**
+     * Returns true if the step at [index] is authoritatively completed.
+     */
+    fun isStepIndexCompleted(index: Int): Boolean {
+        val plan = activePlan
+        if (plan != null) {
+            val step = plan.steps.getOrNull(index) ?: return false
+            return goalProgressState.completedStepIds.contains(step.stepId)
+        }
+        return index < state.currentStepIndex
     }
 
     fun togglePause() {

@@ -1,3 +1,5 @@
-=== Test P10-07: Lesson Continuity Across Transitions ===
+=== Phase 10 Invariant: Lesson Continuity ===
 Result: PASS
+Goal: Create a UV sphere
+Step: 0
 Cancel -> Recapture -> Confirm cycle preserved step index 0 and goal.

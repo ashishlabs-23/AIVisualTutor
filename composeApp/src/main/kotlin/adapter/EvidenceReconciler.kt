@@ -200,9 +200,14 @@ class EvidenceReconciler(
         // Check if user selected an existing object instead of creating a new one
         if (expected.operation == VerificationOperation.CREATE && baseline != null && observed != null) {
             val targetName = expected.targetName
-            val existingInBaseline = baseline.objects.any { it.name.equals(targetName, ignoreCase = true) }
-            if (existingInBaseline) {
-                // The object was already in baseline! If user merely selected it, verification must fail
+            val baselineTarget = baseline.objects.find { stateVerifier.objectMatchesName(it, targetName) }
+            val observedTarget = observed.objects.find { stateVerifier.objectMatchesName(it, targetName) }
+            val isMereSelection = baselineTarget != null && observedTarget != null &&
+                baselineTarget.id == observedTarget.id &&
+                baseline.objects.size == observed.objects.size &&
+                baselineTarget.selected != true && observedTarget.selected == true
+            if (isMereSelection) {
+                // The object was already in baseline and merely selected! Not a valid creation
                 return VerificationResult(
                     status = VerificationStatus.FAILURE,
                     runId = baseline.runId,

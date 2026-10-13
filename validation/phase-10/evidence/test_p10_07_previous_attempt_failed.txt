@@ -1,0 +1,6 @@
+=== Test P10-07: Previous Attempt Failed (Adaptive Scaffolding) ===
+Result: PASS
+Guidance Stage: STAGE_1_EXACT_GUIDANCE
+Consecutive Failures: 2
+Adapted Steps Count: 3
+Adapted Steps: Review current workspace state in the 3D Viewport.; Execute instruction: Switch to Object Mode in 3D Viewport header.; Check the Status Bar or Outliner to verify your action.

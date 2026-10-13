@@ -1,0 +1,33 @@
+================================================================================
+AIVISUALTUTOR PHASE 14 DESKTOP ARCHITECTURE AUDIT
+================================================================================
+Timestamp: 2026-10-13T12:38:00+05:30
+
+1. WINDOW CREATION & LIFECYCLE
+   - Compose Desktop creates the primary floating tutor panel in `Main.kt`.
+   - Main window properties: `undecorated = true`, `transparent = true`, `alwaysOnTop = true`.
+   - Layout sizes: expanded panel (400x610 dp) or compact docked bar (160x52 dp).
+   - Overlay: Managed via `OverlayManager`. When visible, `OverlayWindow.kt` renders a full-virtual-screen transparent window (`focusable = false`, `alwaysOnTop = true`, undecorated).
+   - Companion close control: Floating interactive window at top right of the virtual desktop allows user to dismiss highlights at any time.
+
+2. BLENDER DISCOVERY & MULTI-WINDOW SELECTION POLICY
+   - `WindowsBlenderWindowLocator` searches processes named `blender` or `blender-app`.
+   - Window enumeration filters out hidden, tool, and zero-area child windows via `EnumWindows`, `IsWindowVisible`, `IsIconic`, `GetWindowRect`.
+   - Selection Policy:
+     * If the foreground window is a Blender window and >100x100 pixels, it is preferred (user is currently working in it).
+     * Otherwise, selects the visible window with the largest surface area (the primary workspace rather than small utility/dialog windows).
+   - Invalidation check: `isWindowValid(hwnd)` queries Win32 `IsWindow` to verify handles before capture or activation.
+
+3. OVERLAY CLICK-THROUGH & OS COMPOSITING
+   - Canvas window applies Win32 extended style `WS_EX_TRANSPARENT` via P/Invoke.
+   - `WS_EX_LAYERED` is automatically set by Skiko/Compose Desktop when `transparent = true`.
+   - `OverlayWindow.kt` explicitly avoids calling `SetLayeredWindowAttributes` to prevent overriding per-pixel Skiko alpha blending.
+   - Fault tolerance: In environments where native click-through cannot be applied, native errors are logged gracefully without crashing the UI thread.
+   - The close control window omits `WS_EX_TRANSPARENT`, keeping its close button clickable.
+
+4. FOCUS MANAGEMENT & INVARIANT PRESERVATION
+   - The tutor operates in non-intrusive mode: it never continuously steals focus from Blender.
+   - Native activation (`bringBlenderToForeground`) is only called explicitly when user requests screenshot help.
+   - `WindowsWindowFocusManager` captures the previous foreground HWND and restores it.
+   - Verification Invariant: No overlay, focus change, or automation command can mark a tutorial step or goal complete. Only authoritative state verification evidence can advance steps.
+================================================================================

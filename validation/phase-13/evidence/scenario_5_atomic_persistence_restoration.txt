@@ -1,0 +1,7 @@
+=== SCENARIO 5: ATOMIC PERSISTENCE & RESTORATION ===
+Timestamp: 2026-10-13T06:33:38.709278700Z
+Restored Learner ID: student_alpha
+Schema Version: 1
+Verified Successes: 2
+Skill Level: PRACTICED
+Detail Preference: CONCISE

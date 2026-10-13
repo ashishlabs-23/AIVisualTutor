@@ -1,0 +1,7 @@
+=== E2E-05: INVALID OR INCOMPLETE PLAN REPAIR ===
+Timestamp: 2026-10-13T07:29:12.382874300Z
+Initial Valid: false
+Uncovered Outcomes: 1
+Repaired Valid: true
+Repaired Steps: 2
+Repair Attempts: 1

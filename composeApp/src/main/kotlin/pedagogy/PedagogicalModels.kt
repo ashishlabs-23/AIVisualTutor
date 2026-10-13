@@ -149,11 +149,158 @@ data class TaskLearnerProfile(
 }
 
 /**
- * Complete learner state tracking verified performance, active guidance stage,
- * and adaptation rationale.
+ * Skill mastery classification based on verified outcomes.
+ * Progresses conservatively through evidence-supported stages.
+ */
+enum class SkillMasteryLevel(val displayName: String, val description: String) {
+    NOT_OBSERVED("Not Observed", "No verified demonstrations of this skill yet recorded"),
+    EMERGING("Emerging", "Initial verified demonstration observed"),
+    PRACTICED("Practiced", "Multiple verified demonstrations recorded across tasks"),
+    CONSISTENTLY_DEMONSTRATED("Consistently Demonstrated", "Consistent verified success demonstrated with high reliability");
+
+    companion object {
+        fun fromSuccessCounts(verifiedSuccessCount: Int, consecutiveSuccessCount: Int): SkillMasteryLevel = when {
+            consecutiveSuccessCount >= 3 -> CONSISTENTLY_DEMONSTRATED
+            verifiedSuccessCount >= 2 -> PRACTICED
+            verifiedSuccessCount >= 1 -> EMERGING
+            else -> NOT_OBSERVED
+        }
+    }
+}
+
+/**
+ * Verified capability demonstrated by the learner in Blender.
+ */
+data class DemonstratedSkill(
+    val skillId: String,
+    val displayName: String,
+    val masteryLevel: SkillMasteryLevel = SkillMasteryLevel.NOT_OBSERVED,
+    val verifiedSuccessCount: Int = 0,
+    val consecutiveSuccessCount: Int = 0,
+    val totalAttempts: Int = 0,
+    val lastVerifiedAt: Instant? = null
+) {
+    init {
+        require(skillId.isNotBlank()) { "Skill ID must not be blank." }
+        require(verifiedSuccessCount >= 0) { "Verified successes must be non-negative." }
+        require(consecutiveSuccessCount >= 0) { "Consecutive successes must be non-negative." }
+    }
+}
+
+/**
+ * Distinguishes the genuine root cause of an unsuccessful or uncertain attempt.
+ * Crucial for Rule 2: Failed attempts are not automatically learner weaknesses.
+ */
+enum class FailureCause {
+    /** The learner's action resulted in a state mismatch. */
+    LEARNER_ACTION,
+    /** Missing telemetry, socket disconnect, or AI provider failure. */
+    INFRASTRUCTURE_OR_PROVIDER,
+    /** Inconclusive, ambiguous, or conflicting telemetry evidence. */
+    UNCERTAIN_EVIDENCE,
+    /** Inaccurate expected state or contradictory step definition. */
+    TASK_SPECIFICATION
+}
+
+/**
+ * Record of recurring, evidence-supported difficulty experienced by the learner.
+ * Created only when evidence demonstrates repeated verified errors on the same task/skill.
+ */
+data class LearnerDifficulty(
+    val difficultyId: String = UUID.randomUUID().toString(),
+    val skillId: String,
+    val errorCategory: String,
+    val occurrenceCount: Int = 1,
+    val explanation: String = "",
+    val firstOccurredAt: Instant = Instant.now(),
+    val lastOccurredAt: Instant = Instant.now()
+) {
+    init {
+        require(skillId.isNotBlank()) { "Skill ID must not be blank." }
+        require(occurrenceCount >= 1) { "Occurrence count must be at least 1." }
+    }
+}
+
+/**
+ * Learner detail preference level.
+ */
+enum class DetailPreference {
+    NORMAL,
+    CONCISE,
+    DETAILED
+}
+
+/**
+ * Explicit instruction and tutoring preferences provided by the learner.
+ */
+data class LearnerPreferences(
+    val detailPreference: DetailPreference = DetailPreference.NORMAL,
+    val preferredGuidanceStage: GuidanceStage? = null,
+    val wantsSmallerSteps: Boolean = false,
+    val practiceRecommendationsEnabled: Boolean = true
+)
+
+/**
+ * Instructional strategy selected by adaptive pedagogy.
+ */
+enum class AdaptationStrategy {
+    NORMAL_GUIDANCE,
+    CONCISE_INSTRUCTION,
+    DETAILED_INSTRUCTION,
+    SMALLER_STEP,
+    TARGETED_PRACTICE
+}
+
+/**
+ * Audit record of an adaptation decision and its supporting evidence.
+ */
+data class AdaptationDecisionRecord(
+    val decisionId: String = UUID.randomUUID().toString(),
+    val taskId: String,
+    val skillId: String,
+    val strategy: AdaptationStrategy,
+    val evidenceReason: String,
+    val timestamp: Instant = Instant.now()
+)
+
+/**
+ * Practice recommendation tailored to learner's emerging skills or difficulties.
+ */
+data class PracticeRecommendation(
+    val recommendationId: String = UUID.randomUUID().toString(),
+    val skillId: String,
+    val title: String,
+    val description: String,
+    val suggestedGoalText: String,
+    val rationale: String,
+    val isCompleted: Boolean = false
+)
+
+/**
+ * Structured audit trail of a learner attempt.
+ */
+data class LearnerAttemptRecord(
+    val attemptId: String = UUID.randomUUID().toString(),
+    val taskId: String,
+    val skillId: String,
+    val stepId: String? = null,
+    val planVersion: Long = 1L,
+    val outcome: PedagogicalOutcome,
+    val errorCategory: String? = null,
+    val failureCause: FailureCause = FailureCause.LEARNER_ACTION,
+    val explanation: String = "",
+    val timestamp: Instant = Instant.now()
+)
+
+/**
+ * Complete learner state tracking verified performance, demonstrated skills,
+ * recurring difficulties, preferences, and adaptation history.
  */
 data class LearnerState(
     val learnerId: String = "default_learner",
+    val schemaVersion: Int = 1,
+    val createdAt: Instant = Instant.now(),
+    val updatedAt: Instant = Instant.now(),
     val currentTaskId: String = "default_task",
     val currentSkillId: String = "general",
     val currentGuidanceStage: GuidanceStage = GuidanceStage.STAGE_1_EXACT_GUIDANCE,
@@ -168,16 +315,90 @@ data class LearnerState(
     val adaptationReason: String = "Initial beginner state: defaulting to Stage 1 (Direct Guidance).",
     val requiresReassessment: Boolean = false,
     val recentAttempts: List<PedagogicalAttempt> = emptyList(),
-    val taskProfiles: Map<String, TaskLearnerProfile> = emptyMap()
+    val taskProfiles: Map<String, TaskLearnerProfile> = emptyMap(),
+    val demonstratedSkills: Map<String, DemonstratedSkill> = emptyMap(),
+    val verifiedOutcomes: Set<String> = emptySet(),
+    val recordedDifficulties: Map<String, LearnerDifficulty> = emptyMap(),
+    val preferences: LearnerPreferences = LearnerPreferences(),
+    val adaptationDecisions: List<AdaptationDecisionRecord> = emptyList(),
+    val practiceRecommendations: List<PracticeRecommendation> = emptyList(),
+    val processedEventIds: Set<String> = emptySet()
 ) {
     init {
         require(competenceEstimate in 0.0..1.0) { "Competence estimate must be in 0.0..1.0." }
         require(consecutiveSuccesses >= 0) { "Consecutive successes must be non-negative." }
         require(consecutiveFailures >= 0) { "Consecutive failures must be non-negative." }
+        require(schemaVersion >= 1) { "Schema version must be at least 1." }
     }
 
     fun profileForTask(taskId: String, skillId: String): TaskLearnerProfile =
         taskProfiles[taskId] ?: TaskLearnerProfile(taskId = taskId, skillId = skillId)
+
+    fun getSkillLevel(skillId: String): SkillMasteryLevel =
+        demonstratedSkills[skillId]?.masteryLevel ?: SkillMasteryLevel.NOT_OBSERVED
+
+    fun hasDifficulty(skillId: String): Boolean =
+        recordedDifficulties.containsKey(skillId)
+}
+
+/**
+ * Trustworthy Learning Events boundary for Phase 13.
+ * Connects authoritative verification and learner actions to the pedagogical engine idempotently.
+ */
+sealed interface LearningEvent {
+    val eventId: String
+    val learnerId: String
+    val timestamp: Instant
+
+    /**
+     * Authoritative verification outcome emitted after Blender state analysis.
+     */
+    data class OutcomeVerified(
+        override val eventId: String = UUID.randomUUID().toString(),
+        override val learnerId: String = "default_learner",
+        val sessionId: String = "default_session",
+        val goalId: String? = null,
+        val planVersion: Long = 1L,
+        val stepId: String = "",
+        val taskId: String,
+        val skillId: String,
+        val result: VerificationResult,
+        val mismatchCategory: String? = null,
+        val failureCause: FailureCause = FailureCause.LEARNER_ACTION,
+        override val timestamp: Instant = Instant.now()
+    ) : LearningEvent
+
+    /**
+     * Explicit learner update to their instruction preferences.
+     */
+    data class PreferenceUpdated(
+        override val eventId: String = UUID.randomUUID().toString(),
+        override val learnerId: String = "default_learner",
+        val preferences: LearnerPreferences,
+        override val timestamp: Instant = Instant.now()
+    ) : LearningEvent
+
+    /**
+     * Recovery attempt outcome evaluated during Phase 11 recovery flow.
+     */
+    data class RecoveryAttemptEvaluated(
+        override val eventId: String = UUID.randomUUID().toString(),
+        override val learnerId: String = "default_learner",
+        val stepId: String,
+        val attemptNumber: Int,
+        val status: VerificationStatus,
+        val recoveryOutcome: String,
+        override val timestamp: Instant = Instant.now()
+    ) : LearningEvent
+
+    /**
+     * Explicit request by learner to reset or clear saved progress.
+     */
+    data class ResetRequested(
+        override val eventId: String = UUID.randomUUID().toString(),
+        override val learnerId: String = "default_learner",
+        override val timestamp: Instant = Instant.now()
+    ) : LearningEvent
 }
 
 /**
@@ -206,5 +427,7 @@ data class AdaptiveInstruction(
     val supportingEvidence: List<String> = emptyList(),
     val evidenceConfidence: Double? = null,
     val isFallback: Boolean = false,
-    val status: GenerationStatus = GenerationStatus.GENERATED
+    val status: GenerationStatus = GenerationStatus.GENERATED,
+    val strategy: AdaptationStrategy = AdaptationStrategy.NORMAL_GUIDANCE,
+    val adaptationRationale: String? = null
 )

@@ -69,8 +69,9 @@ class Phase9EndToEndValidationRunner {
         // -------------------------------------------------------------
         // P9-01: Launch Application and Blender
         // -------------------------------------------------------------
-        val blenderExe = File("D:\\blender.exe")
-        assertTrue(blenderExe.isFile, "Blender executable must exist at D:\\blender.exe")
+        val blenderExe = BlenderExecutableLocator.findBlenderExecutable()
+        assertNotNull(blenderExe, "Blender executable must be installed on host system")
+        assertTrue(blenderExe.isFile, "Blender executable must exist at ${blenderExe.absolutePath}")
         println("\n>>> P9-01: Launching real Blender from ${blenderExe.absolutePath}...")
         killAnyRunningBlender()
         val blenderProcess = ProcessBuilder(blenderExe.absolutePath).start()

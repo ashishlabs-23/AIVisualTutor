@@ -19,10 +19,10 @@ import kotlinx.coroutines.withContext
 
 class BlenderVerificationWorkflow(
     private val provider: BlenderStateProvider = BlenderTcpStateProvider(),
-    private val verifier: StateVerifier = StateVerifier(),
+    internal val verifier: StateVerifier = StateVerifier(),
     private val resultStore: VerificationResultStore = VerificationResultStore.default(),
     private val runWindow: Duration = Duration.ofMinutes(30),
-    private val reconciler: EvidenceReconciler = EvidenceReconciler(stateVerifier = verifier)
+    internal val reconciler: EvidenceReconciler = EvidenceReconciler(stateVerifier = verifier)
 ) {
     constructor(
         applicationAdapter: ApplicationAdapter,
@@ -40,6 +40,11 @@ class BlenderVerificationWorkflow(
     init {
         require(!runWindow.isNegative && !runWindow.isZero) { "Verification run window must be positive." }
     }
+
+    var lastObservedState: ObservedState? = null
+        internal set
+    var lastObservation: BlenderStateObservation? = null
+        internal set
 
     suspend fun captureBaseline(expected: ExpectedState): VerificationRun {
         val validationErrors = verifier.validate(expected)
@@ -76,6 +81,8 @@ class BlenderVerificationWorkflow(
             )
         }
         val observed = run.observedState(observation)
+        lastObservedState = observed
+        lastObservation = observation
         val snapshotVer = observation.metadata["snapshotVersion"]?.toLongOrNull()
         val directProv = EvidenceProvenance(
             category = EvidenceCategory.DIRECT_APPLICATION_STATE,
@@ -108,6 +115,47 @@ class BlenderVerificationWorkflow(
         )
         resultStore.persist(result)
         return result
+    }
+
+    /**
+     * When the expected object already existed in the baseline captured for this run,
+     * re-evaluates whether the object genuinely exists in the post-action state against a
+     * pre-creation baseline without that object.
+     */
+    suspend fun verifyWithPreCreationBaseline(run: VerificationRun): VerificationResult? {
+        val baseline = run.baseline ?: return null
+        val targetName = run.expected.targetName ?: return null
+        val observed = lastObservedState ?: return null
+        val cleanBaseline = baseline.copy(
+            objects = baseline.objects.filterNot { verifier.objectMatchesName(it, targetName) }
+        )
+        val directProv = lastObservation?.let { obs ->
+            EvidenceProvenance(
+                category = EvidenceCategory.DIRECT_APPLICATION_STATE,
+                source = EvidenceSource.BLENDER,
+                capturedAt = obs.capturedAt,
+                sessionId = obs.sessionId,
+                isDirectFact = true,
+                freshness = if (obs.status == BlenderObservationStatus.AVAILABLE) ObservationFreshness.FRESH else ObservationFreshness.UNKNOWN,
+                confidence = if (obs.status == BlenderObservationStatus.AVAILABLE) 1.0 else 0.0,
+                diagnostic = obs.diagnostic
+            )
+        } ?: return null
+        val directEvidence = ProvenanceEvidenceObservation(
+            provenance = directProv,
+            available = true
+        )
+        val result = reconciler.reconcileAndVerify(
+            expected = run.expected,
+            baseline = cleanBaseline,
+            observed = observed,
+            rawEvidence = listOf(directEvidence)
+        )
+        if (result.status == VerificationStatus.SUCCESS) {
+            resultStore.persist(result)
+            return result
+        }
+        return null
     }
 
     /**

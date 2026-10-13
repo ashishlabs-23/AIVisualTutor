@@ -1,0 +1,38 @@
+================================================================================
+AIVISUALTUTOR PHASE 14 COORDINATE TRANSFORMATION VALIDATION
+================================================================================
+Timestamp: 2026-10-13T12:38:00+05:30
+
+1. COORDINATE SPACES
+   - PHYSICAL_SCREEN: Raw monitor hardware pixel coordinates used by Win32, Robot, UIA.
+   - LOGICAL_DESKTOP: Device-independent layout DIPs used by Compose Desktop / Skiko.
+   - WINDOW_RELATIVE: Coordinates relative to target Blender window (x - win.x, y - win.y).
+   - SCREENSHOT_RASTER: Image-relative pixel coordinates within captured PNG raster.
+
+2. TRANSFORMATION FIDELITY VERIFICATIONS
+   A. Bidirectional Window-Relative <-> Physical:
+      - Formula: physicalX = windowX + relativeX, relativeX = physicalX - windowX
+      - Tested with offset (200, 150) and dimensions 1920x1080.
+      - Relative (50, 75, 300, 120) -> Physical (250, 225, 300, 120) -> Roundtrip exact match.
+
+   B. Multi-Monitor Negative Origins:
+      - Secondary monitor positioned to the left of primary display (origin: x = -1920, y = 0).
+      - Tested relative rect (100, 200, 400, 300) -> Physical (-1820, 200, 400, 300).
+      - Roundtrip back to window-relative produces exact original rectangle.
+
+   C. High-DPI Screenshot Raster Scaling:
+      - Formula: screenshotX = (physicalX - originX) * rasterScale
+      - Tested at 150% scaling factor (rasterScale = 1.5).
+      - Target physical (200, 300, 100, 50) with origin (100, 100) -> Raster (150, 300, 150, 75).
+      - Inverted recovery via screenshotToPhysical produces exact original physical bounds.
+
+   D. Overlay Canvas Offset Normalization:
+      - Formula: overlayX = screenX - virtualScreenOrigin.x
+      - Virtual desktop origin (-1920, 0), window offset (500, 400), target relative (10, 20).
+      - Physical target = (510, 420) -> Overlay local = (2430, 420).
+      - Tested and verified against full multi-monitor virtual bounds.
+
+   E. Boundary and Invalid Dimensions Safety:
+      - Transformations guard against non-positive dimensions (w <= 0 || h <= 0).
+      - Clamped to minimum 1x1 pixel bounds to prevent zero-size painting anomalies.
+================================================================================

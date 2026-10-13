@@ -1,0 +1,14 @@
+=== PART 5: CORE CORRECTNESS INVARIANTS MATRIX ===
+Timestamp: 2026-10-13T07:29:12.495634700Z
+Invariant 1 & 2 (LLM/Screenshot cannot complete task): VERIFIED
+Invariant 3 (Valid plan != completed goal): VERIFIED
+Invariant 4 (Mandatory outcome requires accepted verification): VERIFIED
+Invariant 5 (Recovery cannot bypass verification): VERIFIED
+Invariant 6 & 7 (Missing telemetry / Provider failure != learner penalty): VERIFIED
+Invariant 8 (Stale responses cannot overwrite active goal): VERIFIED
+Invariant 9 (Duplicate events do not double count): VERIFIED
+Invariant 10 (Replanning handles completion safely): VERIFIED
+Invariant 11 (Unrelated window handle rejected): VERIFIED
+Invariant 12 (Missing Blender handled safely without crash): VERIFIED
+Invariant 13 & 14 (Persistence consistency and recovery): VERIFIED
+Invariant 15 (No autonomous Blender modeling actions executed): VERIFIED

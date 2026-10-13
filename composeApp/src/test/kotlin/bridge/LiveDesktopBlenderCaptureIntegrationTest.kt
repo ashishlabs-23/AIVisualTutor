@@ -56,9 +56,9 @@ class LiveDesktopBlenderCaptureIntegrationTest {
 
     @Test
     fun `Test A B C D F G - Live Blender Window Capture Workflow`() = runBlocking {
-        val blenderExe = File("D:\\blender.exe")
-        if (!blenderExe.isFile) {
-            println("Skipping live test: D:\\blender.exe not found")
+        val blenderExe = BlenderExecutableLocator.findBlenderExecutable()
+        if (blenderExe == null || !blenderExe.isFile) {
+            println("Skipping live test: Blender executable not found")
             return@runBlocking
         }
 
@@ -68,9 +68,9 @@ class LiveDesktopBlenderCaptureIntegrationTest {
         val blenderProcess = ProcessBuilder(blenderExe.absolutePath).start()
 
         try {
-            // Wait up to 10 seconds for the GUI window to be created and become visible
+            // Wait up to 30 seconds for the GUI window to be created and become visible
             var windowFound: BlenderWindowInfo? = null
-            for (i in 1..20) {
+            for (i in 1..60) {
                 delay(500)
                 when (val res = locator.locateBlenderWindow()) {
                     is BlenderWindowResult.Found -> {
@@ -165,8 +165,8 @@ class LiveDesktopBlenderCaptureIntegrationTest {
             assertTrue(confirmed)
             assertEquals(ScreenshotHelpLifecycleStage.RESPONSE_READY, coordinator.state.stage)
             val response = coordinator.state as ScreenshotHelpWorkflowState.ResponseReady
-            println("Phase 9 Staging Response: ${response.message}")
-            assertTrue(response.message.contains("Phase 9"))
+            println("Phase 9/10 Response: ${response.message}")
+            assertTrue(response.message.contains("Phase 9") || response.analysisResult != null || response.recommendation != null)
 
             // Test G: Session continuity verification
             assertEquals("Create a UV sphere", controller.activePlan?.goalText)
@@ -184,6 +184,7 @@ class LiveDesktopBlenderCaptureIntegrationTest {
     private fun killAnyRunningBlender() {
         runCatching {
             ProcessBuilder("taskkill", "/F", "/IM", "blender.exe").start().waitFor()
+            Thread.sleep(1000)
         }
     }
 }

@@ -45,10 +45,13 @@ data class ExpectedState(
         if (operation == VerificationOperation.UNKNOWN) {
             errors += "verification operation is required"
         }
-        if (operation in setOf(VerificationOperation.CREATE, VerificationOperation.DELETE, VerificationOperation.RENAME, VerificationOperation.SELECT, VerificationOperation.MODIFY) &&
+        if (operation in setOf(VerificationOperation.CREATE, VerificationOperation.DELETE, VerificationOperation.RENAME, VerificationOperation.SELECT) &&
             targetName.isNullOrBlank()
         ) {
             errors += "targetName is required for $operation verification"
+        }
+        if (operation == VerificationOperation.MODIFY && targetName.isNullOrBlank() && targetMode.isNullOrBlank()) {
+            errors += "targetName or targetMode is required for MODIFY verification"
         }
         requiredConditions.forEach { condition ->
             when (condition.field) {
@@ -389,15 +392,23 @@ class StateVerifier {
                 ExpectedCondition(ExpectedStateField.OBJECT_EXISTS, expectedValue = name, objectName = name, required = true),
                 ExpectedCondition(ExpectedStateField.OBJECT_SELECTED, objectName = name, expectedBoolean = expected.expectedSelection ?: true)
             )
-            VerificationOperation.MODIFY -> listOf(
-                ExpectedCondition(ExpectedStateField.OBJECT_EXISTS, expectedValue = name, objectName = name),
-                ExpectedCondition(
-                    ExpectedStateField.OBJECT_PROPERTY,
-                    expectedValue = expected.expectedPropertyValue,
-                    objectName = name,
-                    propertyName = expected.targetProperty
-                )
-            )
+            VerificationOperation.MODIFY -> {
+                if (expected.targetMode != null && expected.targetName.isNullOrBlank()) {
+                    listOf(
+                        ExpectedCondition(ExpectedStateField.MODE, expectedValue = expected.targetMode)
+                    )
+                } else {
+                    listOf(
+                        ExpectedCondition(ExpectedStateField.OBJECT_EXISTS, expectedValue = name, objectName = name),
+                        ExpectedCondition(
+                            ExpectedStateField.OBJECT_PROPERTY,
+                            expectedValue = expected.expectedPropertyValue,
+                            objectName = name,
+                            propertyName = expected.targetProperty
+                        )
+                    )
+                }
+            }
             VerificationOperation.UNKNOWN -> emptyList()
         }
     }
@@ -484,6 +495,10 @@ class StateVerifier {
         baseline: BaselineState,
         observed: ObservedState
     ): Boolean? {
+        if (expected.operation == VerificationOperation.MODIFY && expected.targetMode != null && expected.targetName.isNullOrBlank()) {
+            if (!isCompleteForExpectedScope(baseline, expected) || !isCompleteForExpectedScope(observed, expected)) return null
+            return observed.mode?.equals(expected.targetMode, ignoreCase = true) == true
+        }
         val name = expected.targetName ?: return null
         val beforeObjects = baseline.objects.filter { objectInScope(it, expected, baseline.sceneName) }
         val afterObjects = observed.objects.filter { objectInScope(it, expected, observed.sceneName) }
@@ -539,6 +554,12 @@ class StateVerifier {
                 if (!isCompleteForExpectedScope(baseline, expected) ||
                     !isCompleteForExpectedScope(observed, expected)
                 ) return null
+                if (expected.targetMode != null) {
+                    val modeMatch = observed.mode?.equals(expected.targetMode, ignoreCase = true) == true
+                    if (expected.targetProperty.isNullOrBlank() && expected.expectedPropertyValue.isNullOrBlank()) {
+                        return modeMatch
+                    }
+                }
                 val beforeTarget = before.singleOrNull() ?: return if (before.size > 1) null else false
                 val afterTarget = after.singleOrNull() ?: return if (after.size > 1) null else false
                 val id = beforeTarget.id?.takeIf(String::isNotBlank) ?: return null
@@ -597,9 +618,12 @@ class StateVerifier {
             }
     }
 
-    private fun objectMatchesName(objectObservation: ObjectObservation, expectedName: String?): Boolean {
+    internal fun objectMatchesName(objectObservation: ObjectObservation, expectedName: String?): Boolean {
+        val obsName = objectObservation.name ?: return false
         if (expectedName.isNullOrBlank()) return false
-        return objectObservation.name.equals(expectedName, ignoreCase = true)
+        if (obsName.equals(expectedName, ignoreCase = true)) return true
+        val regex = Regex("^" + Regex.escape(expectedName) + "(\\.\\d+)?$", RegexOption.IGNORE_CASE)
+        return regex.matches(obsName)
     }
 
     private fun computeStateDiff(baseline: BaselineState, observed: ObservedState): List<StateDiff> {

@@ -41,8 +41,13 @@ import context.ExpectedState
 import kotlinx.coroutines.launch
 import models.ApplicationType
 import overlay.OverlayManager
+import pedagogy.DetailPreference
 import pedagogy.PedagogicalOutcome
+import pedagogy.SkillMasteryLevel
+import tutor.OutcomeRequirementLevel
+import tutor.OutcomeSatisfactionStatus
 import tutor.TutorController
+import tutor.VerificationStrategy
 
 /**
  * Transparent floating frosted-glass HUD panel designed to overlay directly
@@ -447,6 +452,140 @@ fun WindowScope.TutorPanel(
                         }
                     }
 
+                    // Ambiguity Warning if detected
+                    if (controller.activePlan?.isAmbiguous == true) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color(0x3DF59E0B), RoundedCornerShape(12.dp))
+                                .border(1.dp, Color(0x66F59E0B), RoundedCornerShape(12.dp))
+                                .padding(10.dp)
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(
+                                    text = "⚠️ Clarification Needed",
+                                    color = Color(0xFFFBBF24),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp
+                                )
+                                Text(
+                                    text = controller.activePlan?.clarificationPrompt ?: "Please clarify your goal.",
+                                    color = Color(0xFFFDE68A),
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+                    }
+
+                    // Goal Coverage & Outcome Status Section
+                    val plan = controller.activePlan
+                    val progress = controller.goalProgressState
+                    if (plan != null && plan.requiredOutcomes.isNotEmpty()) {
+                        val totalOutcomes = plan.requiredOutcomes.size
+                        val totalMandatory = plan.requiredOutcomes.count { it.importance == OutcomeRequirementLevel.MANDATORY }
+                        val coveredOutcomes = plan.validationResult?.coveredOutcomeIds?.size ?: totalOutcomes
+                        val satisfiedMandatory = plan.requiredOutcomes.count {
+                            progress.outcomeProgress[it.id] == OutcomeSatisfactionStatus.SATISFIED
+                        }
+
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color(0x29141B2D), RoundedCornerShape(14.dp))
+                                .border(1.dp, Color(0x3338BDF8), RoundedCornerShape(14.dp))
+                                .padding(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "🎯 Goal Coverage",
+                                    color = Color(0xFF38BDF8),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp
+                                )
+                                Text(
+                                    text = "$coveredOutcomes of $totalOutcomes covered • $satisfiedMandatory of $totalMandatory verified",
+                                    color = Color(0xFF94A3B8),
+                                    fontSize = 11.sp
+                                )
+                            }
+
+                            // Outcomes list with status indicators
+                            plan.requiredOutcomes.forEach { outcome ->
+                                val status = progress.outcomeProgress[outcome.id] ?: OutcomeSatisfactionStatus.NOT_STARTED
+                                val (statusIcon, statusColor) = when (status) {
+                                    OutcomeSatisfactionStatus.SATISFIED -> Pair("✓", Color(0xFF22C55E))
+                                    OutcomeSatisfactionStatus.IN_PROGRESS -> Pair("↻", Color(0xFF38BDF8))
+                                    OutcomeSatisfactionStatus.FAILED -> Pair("✗", Color(0xFFEF4444))
+                                    else -> Pair("○", Color(0xFF64748B))
+                                }
+                                val stratLabel = when (outcome.verificationStrategy) {
+                                    VerificationStrategy.AUTHORITATIVE_STATE -> "State"
+                                    VerificationStrategy.VISUAL_INSPECTION -> "Visual"
+                                    VerificationStrategy.MANUAL_CHECK -> "Manual"
+                                    VerificationStrategy.UNSUPPORTED -> "Unsupported"
+                                }
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Text(
+                                            text = statusIcon,
+                                            color = statusColor,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 12.sp
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = outcome.description,
+                                            color = if (status == OutcomeSatisfactionStatus.SATISFIED) Color(0xFF94A3B8) else Color(0xFFE2E8F0),
+                                            fontSize = 11.sp,
+                                            maxLines = 1
+                                        )
+                                    }
+                                    Box(
+                                        modifier = Modifier
+                                            .background(Color(0x33475569), RoundedCornerShape(4.dp))
+                                            .padding(horizontal = 4.dp, vertical = 2.dp)
+                                    ) {
+                                        Text(
+                                            text = stratLabel,
+                                            color = Color(0xFF94A3B8),
+                                            fontSize = 9.sp
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Prerequisite step execution guard banner
+                    if (!controller.canExecuteCurrentStep()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color(0x3DF59E0B), RoundedCornerShape(10.dp))
+                                .border(1.dp, Color(0x66F59E0B), RoundedCornerShape(10.dp))
+                                .padding(8.dp)
+                        ) {
+                            Text(
+                                text = "⚠️ Prerequisite steps must be satisfied before this step can be verified.",
+                                color = Color(0xFFFDE68A),
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+
                     // Generated Plan Card (Matching mockup)
                     Column(
                         modifier = Modifier
@@ -476,6 +615,7 @@ fun WindowScope.TutorPanel(
                         Spacer(modifier = Modifier.height(10.dp))
 
                         allSteps.forEachIndexed { idx, st ->
+                            val isCompleted = controller.isStepIndexCompleted(idx)
                             val isPast = idx < state.currentStepIndex
                             val isCurrent = idx == state.currentStepIndex
 
@@ -487,6 +627,7 @@ fun WindowScope.TutorPanel(
                                         .background(Color(0x3D7C3AED), RoundedCornerShape(12.dp))
                                         .border(1.dp, Color(0x668B5CF6), RoundedCornerShape(12.dp))
                                         .padding(horizontal = 10.dp, vertical = 7.dp)
+                                // ...
                                 ) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Box(
@@ -496,7 +637,7 @@ fun WindowScope.TutorPanel(
                                             contentAlignment = Alignment.Center
                                         ) {
                                             Text(
-                                                text = "${idx + 1}",
+                                                text = if (isCompleted) "✔" else "${idx + 1}",
                                                 color = Color.White,
                                                 fontSize = 11.sp,
                                                 fontWeight = FontWeight.Bold
@@ -526,20 +667,20 @@ fun WindowScope.TutorPanel(
                                         modifier = Modifier
                                             .size(24.dp)
                                             .background(
-                                                if (isPast) Color(0xFF6D28D9) else Color(0x26475569),
+                                                if (isCompleted) Color(0xFF6D28D9) else Color(0x26475569),
                                                 CircleShape
                                             )
                                             .border(
                                                 1.dp,
-                                                if (isPast) Color(0xFF8B5CF6) else Color(0xFF475569),
+                                                if (isCompleted) Color(0xFF8B5CF6) else Color(0xFF475569),
                                                 CircleShape
                                             ),
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Text(
-                                            text = if (isPast) "✔" else "${idx + 1}",
-                                            color = if (isPast) Color.White else Color(0xFF94A3B8),
-                                            fontSize = if (isPast) 10.sp else 11.sp,
+                                            text = if (isCompleted) "✔" else "${idx + 1}",
+                                            color = if (isCompleted) Color.White else Color(0xFF94A3B8),
+                                            fontSize = if (isCompleted) 10.sp else 11.sp,
                                             fontWeight = FontWeight.Bold
                                         )
                                     }
@@ -565,7 +706,93 @@ fun WindowScope.TutorPanel(
                         }
                     }
 
-                    // Assistant / Verification Speech Bubble (Matching mockup)
+                    // Adaptive Tutoring & Demonstrated Progress (Phase 13)
+                    val demonstratedSkills = controller.pedagogicalEngine.state.demonstratedSkills.values.filter {
+                        it.masteryLevel != SkillMasteryLevel.NOT_OBSERVED
+                    }
+                    val currentPref = controller.pedagogicalEngine.state.preferences.detailPreference
+                    val adaptiveRationale = controller.state.adaptiveInstruction?.adaptationRationale
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color(0x29141B2D), RoundedCornerShape(14.dp))
+                            .border(1.dp, Color(0x33A78BFA), RoundedCornerShape(14.dp))
+                            .padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("🎓 Learner Progress", color = Color(0xFFA78BFA), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = if (demonstratedSkills.isEmpty()) "Initial Beginner" else "${demonstratedSkills.size} Demonstrated Skill${if (demonstratedSkills.size > 1) "s" else ""}",
+                                    color = Color(0xFFCBD5E1),
+                                    fontSize = 11.sp
+                                )
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text("Detail: ", color = Color(0xFF94A3B8), fontSize = 10.sp)
+                                DetailPreference.values().forEach { pref ->
+                                    val isSelected = pref == currentPref
+                                    Box(
+                                        modifier = Modifier
+                                            .background(
+                                                if (isSelected) Color(0xFF7C3AED) else Color(0x26475569),
+                                                RoundedCornerShape(4.dp)
+                                            )
+                                            .clickable { controller.setDetailPreference(pref) }
+                                            .padding(horizontal = 5.dp, vertical = 2.dp)
+                                    ) {
+                                        Text(
+                                            text = pref.name.lowercase().replaceFirstChar { it.uppercase() },
+                                            color = if (isSelected) Color.White else Color(0xFF94A3B8),
+                                            fontSize = 9.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        if (demonstratedSkills.isNotEmpty()) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                demonstratedSkills.take(3).forEach { skill ->
+                                    Box(
+                                        modifier = Modifier
+                                            .background(Color(0x3334D399), RoundedCornerShape(4.dp))
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    ) {
+                                        Text(
+                                            text = "✔ ${skill.displayName}",
+                                            color = Color(0xFF34D399),
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        if (!adaptiveRationale.isNullOrBlank()) {
+                            Text(
+                                text = "💡 $adaptiveRationale",
+                                color = Color(0xFFFDE68A),
+                                fontSize = 10.sp,
+                                lineHeight = 13.sp
+                            )
+                        }
+                    }
+
+                    // Assistant / Verification Speech Bubble (Matching mockup with Phase 11 Closed-Loop Recovery)
+                    val recoveryState = controller.recoveryCoordinator.state
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
@@ -588,36 +815,100 @@ fun WindowScope.TutorPanel(
                                 .background(Color(0x3D191F2E), RoundedCornerShape(14.dp))
                                 .border(1.dp, Color(0x33475569), RoundedCornerShape(14.dp))
                                 .clickable {
-                                    val exp = activeStep.expectedState
-                                    if (exp != null) onAutoVerifyBlenderAction(exp)
+                                    if (activeStep.expectedState != null) {
+                                        coroutineScope.launch {
+                                            controller.recoveryCoordinator.verifyActiveStep()
+                                        }
+                                    }
                                 }
                                 .padding(horizontal = 12.dp, vertical = 9.dp)
                         ) {
                             Column {
-                                Text(
-                                    text = when {
+                                val bubbleTitle = when (recoveryState) {
+                                    is tutor.ClosedLoopRecoveryState.Verifying -> "Checking Blender state..."
+                                    is tutor.ClosedLoopRecoveryState.VerifiedSuccess -> "Action Verified! ✔"
+                                    is tutor.ClosedLoopRecoveryState.RecoveryRecommended -> "Correction Needed (Attempt ${recoveryState.attemptNumber} of ${controller.recoveryCoordinator.policy.maxVerifiedFailuresPerStep})"
+                                    is tutor.ClosedLoopRecoveryState.RetryLimitReached -> "Retry Limit Reached"
+                                    is tutor.ClosedLoopRecoveryState.NeedsMoreEvidence -> "Verification Notice"
+                                    is tutor.ClosedLoopRecoveryState.AwaitingRetry -> "Ready to Retry"
+                                    else -> when {
                                         state.lastPedagogicalOutcome == PedagogicalOutcome.VERIFIED_SUCCESS -> "Action Verified! ✔"
                                         state.lastPedagogicalOutcome == PedagogicalOutcome.VERIFIED_FAILURE -> "State Check: Mismatch"
                                         state.lastPedagogicalOutcome == PedagogicalOutcome.UNCERTAIN -> "Verification Notice"
                                         activeStep.expectedState != null -> "Waiting for your action"
                                         else -> "Step Guidance"
-                                    },
-                                    color = when {
+                                    }
+                                }
+
+                                val bubbleColor = when (recoveryState) {
+                                    is tutor.ClosedLoopRecoveryState.VerifiedSuccess -> Color(0xFF34D399)
+                                    is tutor.ClosedLoopRecoveryState.RecoveryRecommended,
+                                    is tutor.ClosedLoopRecoveryState.RetryLimitReached -> Color(0xFFF87171)
+                                    is tutor.ClosedLoopRecoveryState.NeedsMoreEvidence -> Color(0xFFFBBF24)
+                                    is tutor.ClosedLoopRecoveryState.Verifying -> Color(0xFF60A5FA)
+                                    else -> when {
                                         state.lastPedagogicalOutcome == PedagogicalOutcome.VERIFIED_SUCCESS -> Color(0xFF34D399)
                                         state.lastPedagogicalOutcome == PedagogicalOutcome.VERIFIED_FAILURE -> Color(0xFFF87171)
                                         else -> Color(0xFFA78BFA)
-                                    },
+                                    }
+                                }
+
+                                val bubbleText = when (recoveryState) {
+                                    is tutor.ClosedLoopRecoveryState.Verifying -> "Observing live Blender scene telemetry and checking expected state..."
+                                    is tutor.ClosedLoopRecoveryState.VerifiedSuccess -> recoveryState.explanation
+                                    is tutor.ClosedLoopRecoveryState.RecoveryRecommended -> "${recoveryState.recommendation.title}: ${recoveryState.recommendation.actionSteps.firstOrNull() ?: recoveryState.recommendation.explanation}"
+                                    is tutor.ClosedLoopRecoveryState.RetryLimitReached -> recoveryState.message
+                                    is tutor.ClosedLoopRecoveryState.NeedsMoreEvidence -> recoveryState.message
+                                    is tutor.ClosedLoopRecoveryState.AwaitingRetry -> "Perform the action in Blender, then click Verify to check."
+                                    else -> state.adaptationReason?.takeIf { state.lastPedagogicalOutcome != null }
+                                        ?: "Next: ${activeStep.instruction} Then I will verify it."
+                                }
+
+                                Text(
+                                    text = bubbleTitle,
+                                    color = bubbleColor,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 12.sp
                                 )
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Text(
-                                    text = state.adaptationReason?.takeIf { state.lastPedagogicalOutcome != null }
-                                        ?: "Next: ${activeStep.instruction} Then I will verify it.",
+                                    text = bubbleText,
                                     color = Color(0xFFCBD5E1),
                                     fontSize = 11.sp,
                                     lineHeight = 15.sp
                                 )
+
+                                if (recoveryState is tutor.ClosedLoopRecoveryState.RecoveryRecommended) {
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        Box(
+                                            modifier = Modifier
+                                                .background(Color(0x338B5CF6), RoundedCornerShape(6.dp))
+                                                .border(1.dp, Color(0x668B5CF6), RoundedCornerShape(6.dp))
+                                                .clickable {
+                                                    coroutineScope.launch {
+                                                        controller.recoveryCoordinator.verifyActiveStep()
+                                                    }
+                                                }
+                                                .padding(horizontal = 8.dp, vertical = 3.dp)
+                                        ) {
+                                            Text("Verify Again", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                } else if (recoveryState is tutor.ClosedLoopRecoveryState.RetryLimitReached) {
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Box(
+                                        modifier = Modifier
+                                            .background(Color(0x33EF4444), RoundedCornerShape(6.dp))
+                                            .border(1.dp, Color(0x66EF4444), RoundedCornerShape(6.dp))
+                                            .clickable {
+                                                controller.recoveryCoordinator.resetStepAttempts(state.currentStepIndex)
+                                            }
+                                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                                    ) {
+                                        Text("Reset Attempts & Try Again", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
                             }
                         }
                     }
@@ -634,8 +925,14 @@ fun WindowScope.TutorPanel(
                                 .border(1.dp, Color(0x33475569), RoundedCornerShape(8.dp))
                                 .clickable {
                                     coroutineScope.launch {
-                                        controller.resolveDynamicTarget()
-                                        overlayManager.showOverlay()
+                                        controller.requestHint()
+                                        val targetRegion = controller.state.currentHighlight
+                                            ?: activeStep.targetRegion
+                                            ?: controller.state.adaptiveInstruction?.targetRegion
+                                        if (targetRegion != null && controller.state.currentHighlight == null) {
+                                            controller.setHighlight(targetRegion)
+                                        }
+                                        overlayManager.showOverlay(targetRegion)
                                     }
                                 }
                                 .padding(vertical = 5.dp),
@@ -692,13 +989,26 @@ fun WindowScope.TutorPanel(
                                 .background(Color(0x2E1E2436), RoundedCornerShape(8.dp))
                                 .border(1.dp, Color(0x33475569), RoundedCornerShape(8.dp))
                                 .clickable {
-                                    if (overlayManager.isOverlayVisible) overlayManager.hideOverlay() else overlayManager.showOverlay()
+                                    if (overlayManager.isOverlayVisible) {
+                                        overlayManager.hideOverlay()
+                                    } else {
+                                        if (!controller.state.screenAssistanceEnabled) {
+                                            controller.toggleScreenAssistance()
+                                        }
+                                        val targetRegion = controller.state.currentHighlight
+                                            ?: activeStep.targetRegion
+                                            ?: controller.state.adaptiveInstruction?.targetRegion
+                                        if (targetRegion != null && controller.state.currentHighlight == null) {
+                                            controller.setHighlight(targetRegion)
+                                        }
+                                        overlayManager.showOverlay(targetRegion)
+                                    }
                                 }
                                 .padding(vertical = 5.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = if (overlayManager.isOverlayVisible) "✨ Glow On" else "✨ Glow Off",
+                                text = if (overlayManager.isOverlayVisible) "✨ Glow Off" else "✨ Glow On",
                                 color = Color(0xFFA78BFA),
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold
@@ -706,18 +1016,26 @@ fun WindowScope.TutorPanel(
                         }
 
                         if (activeStep.expectedState != null) {
+                            val isVerifying = recoveryState is tutor.ClosedLoopRecoveryState.Verifying
                             Box(
                                 modifier = Modifier
                                     .weight(1.1f)
                                     .background(Color(0x33065F46), RoundedCornerShape(8.dp))
                                     .border(1.dp, Color(0x6610B981), RoundedCornerShape(8.dp))
-                                    .clickable {
-                                        activeStep.expectedState?.let { onAutoVerifyBlenderAction(it) }
+                                    .clickable(enabled = !isVerifying) {
+                                        coroutineScope.launch {
+                                            controller.recoveryCoordinator.verifyActiveStep()
+                                        }
                                     }
                                     .padding(vertical = 5.dp),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Text("🎯 Track", color = Color(0xFF34D399), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                Text(
+                                    text = if (isVerifying) "⏳ Verifying..." else "🎯 Verify",
+                                    color = Color(0xFF34D399),
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
                             }
                         }
                     }

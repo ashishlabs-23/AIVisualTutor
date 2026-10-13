@@ -14,14 +14,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * Multimodal Screenshot Analyzer boundary powered by Groq Cloud Vision (e.g. llama-3.2-11b-vision-preview).
+ * Multimodal Screenshot Analyzer boundary powered by Groq Cloud Vision (e.g. qwen/qwen3.8-27b).
  * Sends the learner-confirmed screenshot bytes along with active tutorial context to Groq,
  * and parses structured visual observations, detected UI elements, and uncertainty notes
  * using Groq's high-speed inference engine.
  */
 class GroqMultimodalScreenshotAnalyzer(
     private val apiKeyProvider: () -> String = { ApiKeyConfig.getGroqApiKey() },
-    val model: String = "llama-3.2-11b-vision-preview",
+    val model: String = "qwen/qwen3.8-27b",
     private val httpClient: HttpClient = HttpClient.newBuilder()
         .connectTimeout(Duration.ofSeconds(15))
         .build(),

@@ -1,0 +1,5 @@
+SCENARIO F — DIFFERENT MISMATCH VALIDATION
+Timestamp: 2026-10-13T05:21:11.025469100Z
+Attempt 1 Mismatch: OBJECT_MISSING
+Attempt 2 Mismatch: MODE_MISMATCH
+Dynamic Adaptation: Diagnosis updated without blindly reusing previous category.

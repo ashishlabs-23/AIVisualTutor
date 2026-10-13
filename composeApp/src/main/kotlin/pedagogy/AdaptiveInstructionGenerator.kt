@@ -97,6 +97,19 @@ class DeterministicAdaptiveInstructionGenerator : AdaptiveInstructionGenerator {
             }
         }
 
+        val state = request.learnerState
+        val hasDifficulty = state.hasDifficulty(task.skillId)
+        val isConsistent = state.getSkillLevel(task.skillId) == SkillMasteryLevel.CONSISTENTLY_DEMONSTRATED
+        val wantsConcise = state.preferences.detailPreference == DetailPreference.CONCISE
+        val wantsDetailed = state.preferences.detailPreference == DetailPreference.DETAILED
+
+        val (strategy, rationale) = when {
+            hasDifficulty -> AdaptationStrategy.DETAILED_INSTRUCTION to "Detailed guidance provided due to repeated verified difficulty on '${task.skillId}'."
+            wantsDetailed -> AdaptationStrategy.DETAILED_INSTRUCTION to "Detailed guidance provided based on explicit learner preference."
+            wantsConcise || isConsistent -> AdaptationStrategy.CONCISE_INSTRUCTION to "Concise instruction provided based on demonstrated mastery or learner preference."
+            else -> AdaptationStrategy.NORMAL_GUIDANCE to null
+        }
+
         // 3. Stage-specific generation adhering to instruction quality rules
         return when (stage) {
             GuidanceStage.STAGE_1_EXACT_GUIDANCE -> generateStage1(
@@ -105,17 +118,23 @@ class DeterministicAdaptiveInstructionGenerator : AdaptiveInstructionGenerator {
                 targetVisuallyConfirmed = targetVisuallyConfirmed,
                 targetLocationConfirmed = targetLocationConfirmed,
                 evidenceList = evidenceList,
-                evidenceConfidence = evidenceConfidence
+                evidenceConfidence = evidenceConfidence,
+                strategy = strategy,
+                adaptationRationale = rationale
             )
             GuidanceStage.STAGE_2_CONCEPTUAL_HINT -> generateStage2(
                 task = task,
                 evidenceList = evidenceList,
-                evidenceConfidence = evidenceConfidence
+                evidenceConfidence = evidenceConfidence,
+                strategy = strategy,
+                adaptationRationale = rationale
             )
             GuidanceStage.STAGE_3_SELF_CORRECTION_QUESTION -> generateStage3(
                 task = task,
                 evidenceList = evidenceList,
-                evidenceConfidence = evidenceConfidence
+                evidenceConfidence = evidenceConfidence,
+                strategy = strategy,
+                adaptationRationale = rationale
             )
         }
     }
@@ -126,7 +145,9 @@ class DeterministicAdaptiveInstructionGenerator : AdaptiveInstructionGenerator {
         targetVisuallyConfirmed: Boolean,
         targetLocationConfirmed: Boolean,
         evidenceList: List<String>,
-        evidenceConfidence: Double?
+        evidenceConfidence: Double?,
+        strategy: AdaptationStrategy,
+        adaptationRationale: String?
     ): AdaptiveInstruction {
         val controlName = task.targetControlName
         val area = task.targetAreaDescription
@@ -156,14 +177,18 @@ class DeterministicAdaptiveInstructionGenerator : AdaptiveInstructionGenerator {
             targetRegion = task.targetRegion,
             supportingEvidence = evidenceList,
             evidenceConfidence = evidenceConfidence,
-            status = status
+            status = status,
+            strategy = strategy,
+            adaptationRationale = adaptationRationale
         )
     }
 
     private fun generateStage2(
         task: LearningTask,
         evidenceList: List<String>,
-        evidenceConfidence: Double?
+        evidenceConfidence: Double?,
+        strategy: AdaptationStrategy,
+        adaptationRationale: String?
     ): AdaptiveInstruction {
         // Conceptual hint: Explains action conceptually and indicates general area without giving every exact click detail
         val hintText = task.conceptualHint
@@ -179,14 +204,18 @@ class DeterministicAdaptiveInstructionGenerator : AdaptiveInstructionGenerator {
             targetRegion = null, // Withheld in Stage 2 to avoid spoiling location
             supportingEvidence = supporting,
             evidenceConfidence = evidenceConfidence,
-            status = GenerationStatus.GENERATED
+            status = GenerationStatus.GENERATED,
+            strategy = strategy,
+            adaptationRationale = adaptationRationale
         )
     }
 
     private fun generateStage3(
         task: LearningTask,
         evidenceList: List<String>,
-        evidenceConfidence: Double?
+        evidenceConfidence: Double?,
+        strategy: AdaptationStrategy,
+        adaptationRationale: String?
     ): AdaptiveInstruction {
         // Self-correction question: Targeted question encouraging reflection and problem-solving
         val question = task.reflectionQuestion
@@ -203,7 +232,9 @@ class DeterministicAdaptiveInstructionGenerator : AdaptiveInstructionGenerator {
             targetRegion = null, // Withheld in Stage 3
             supportingEvidence = supporting,
             evidenceConfidence = evidenceConfidence,
-            status = GenerationStatus.GENERATED
+            status = GenerationStatus.GENERATED,
+            strategy = strategy,
+            adaptationRationale = adaptationRationale
         )
     }
 

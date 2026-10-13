@@ -1,7 +1,7 @@
 === Phase 10 End-to-End Validation Execution Log ===
-Timestamp: 2026-10-12T19:08:40.664169900Z
+Timestamp: 2026-10-13T04:24:40.892656100Z
 OS: Windows 11 10.0
-Java: 17.0.20
+Java: 17.0.20.1
 
 === Test P10-01: Correct State Recommendation ===
 Result: PASS
@@ -11,39 +11,74 @@ Action Steps: Execute instruction: Switch to Object Mode in 3D Viewport header.;
 Confidence: 0.95
 Non-Completion Verified: Step index remained 0; goal preserved.
 
-=== Test P10-02: Apparent State Mismatch ===
+=== Test P10-02: Wrong Mode Recommendation ===
 Result: PASS
 Recommendation Type: CORRECT_STATE
 Title: Switch to OBJECT Mode
 Action Steps: Switch mode to OBJECT (Shortcut: Tab).; Shortcut: Press 'Tab' in Blender.
 Shortcut Provided: Tab
+Expected Outcome: Observed state reflects: OBJECT.
 
-=== Test P10-03: Missing Telemetry Fallback ===
+=== Test P10-03: Wrong Selection Recommendation ===
+Result: PASS
+Recommendation Type: CORRECT_STATE
+Title: Select Object 'Sphere'
+Action Steps: Click on 'Sphere' in the top-right Outliner panel.; Alternatively, Left-Click 'Sphere' in the 3D Viewport.
+Evidence: Telemetry indicates 'Sphere' is unselected.; Top-left header indicates Object Mode
+
+=== Test P10-04: Missing Telemetry Fallback ===
 Result: PASS
 Recommendation Type: CORRECT_STATE
 Based Solely on Visual: true
 Uncertainty Notes: [Mode observation derived from screenshot without live socket telemetry.]
 
-=== Test P10-04: Conflicting Evidence Reconciliation ===
+=== Test P10-05: Conflicting Evidence Reconciliation ===
 Result: PASS
 Conflict Warning: Blender telemetry confirms OBJECT Mode, but visual analysis inferred EDIT Mode. Prioritizing authoritative telemetry over visual inference.
 Final Decision Type: CONTINUE
 Tele Mode: OBJECT, Visual Mode Inferred: EDIT
 
-=== Test P10-05: Insufficient Evidence ===
+=== Test P10-06: Insufficient Evidence ===
 Result: PASS
 Recommendation Type: REQUEST_MORE_EVIDENCE
 Title: Capture Clearer View of 3D Viewport
 Action Steps: Ensure Blender is the front-most active window and unobstructed.; Adjust your 3D Viewport angle so your active geometry and header are clearly visible.; Click '🔄 Retake Screenshot' in the tutor HUD.
 
-=== Test P10-06: Manual Execution Invariant ===
+=== Test P10-07: Previous Attempt Failed (Adaptive Scaffolding) ===
 Result: PASS
-Active Goal Intact: Create a UV sphere
+Guidance Stage: STAGE_1_EXACT_GUIDANCE
+Consecutive Failures: 2
+Adapted Steps Count: 3
+Adapted Steps: Review current workspace state in the 3D Viewport.; Execute instruction: Switch to Object Mode in 3D Viewport header.; Check the Status Bar or Outliner to verify your action.
+
+=== Test P10-08: Previous Recommendation Succeeded ===
+Result: PASS
+Recommendation Type: CONTINUE
+Title: Proceed with Step 1: Ensure Object Mode
+Redundant Correction Avoided: Verified.
+
+=== Test P10-09: Missing Phase 9 Result Handling ===
+Result: PASS
+Workflow Error Message: Analysis submission rejected: Vision model rejected input image.
+Can Retry: true
+No Fabricated Recommendation Produced: Verified.
+
+=== Test P10-10: Stale Analysis Overwrite Protection ===
+Result: PASS
+Error Message: Screenshot is associated with a different or expired tutoring step.
+Active Step Kept: 1
+Stale Overwrite Successfully Blocked: Verified.
+
+=== Phase 10 Invariant: Manual Learner Execution ===
+Result: PASS
+Active Goal: Create a UV sphere
 Step Index Intact: 0
 Current Step Title: Ensure Object Mode
 Zero Automatic Advancement Confirmed.
 
-=== Test P10-07: Lesson Continuity Across Transitions ===
+=== Phase 10 Invariant: Lesson Continuity ===
 Result: PASS
+Goal: Create a UV sphere
+Step: 0
 Cancel -> Recapture -> Confirm cycle preserved step index 0 and goal.
 

@@ -1,0 +1,5 @@
+=== Test P10-04: Missing Telemetry Fallback ===
+Result: PASS
+Recommendation Type: CORRECT_STATE
+Based Solely on Visual: true
+Uncertainty Notes: [Mode observation derived from screenshot without live socket telemetry.]

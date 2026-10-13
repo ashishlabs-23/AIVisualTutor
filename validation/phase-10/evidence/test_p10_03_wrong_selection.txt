@@ -1,0 +1,6 @@
+=== Test P10-03: Wrong Selection Recommendation ===
+Result: PASS
+Recommendation Type: CORRECT_STATE
+Title: Select Object 'Sphere'
+Action Steps: Click on 'Sphere' in the top-right Outliner panel.; Alternatively, Left-Click 'Sphere' in the 3D Viewport.
+Evidence: Telemetry indicates 'Sphere' is unselected.; Top-left header indicates Object Mode

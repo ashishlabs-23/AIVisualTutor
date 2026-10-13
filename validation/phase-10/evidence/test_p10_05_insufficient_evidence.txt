@@ -1,4 +1,4 @@
-=== Test P10-05: Insufficient Evidence ===
+=== Test P10-06: Insufficient Evidence ===
 Result: PASS
 Recommendation Type: REQUEST_MORE_EVIDENCE
 Title: Capture Clearer View of 3D Viewport

@@ -1,0 +1,8 @@
+=== SCENARIO I: PARTIAL EXECUTION ===
+Timestamp: 2026-10-13T05:42:31.264659400Z
+Plan Outcomes: [out_mode_obj, out_sphere_exists]
+Verified Step: step_1 (Ensure Object Mode)
+Completion Status: PARTIALLY_SATISFIED
+Completion Ratio: 0.5
+Remaining Mandatory Outcomes: [A UV Sphere mesh object exists in the scene]
+Is Overall Goal Complete: false

@@ -1,0 +1,5 @@
+=== Test P10-10: Stale Analysis Overwrite Protection ===
+Result: PASS
+Error Message: Screenshot is associated with a different or expired tutoring step.
+Active Step Kept: 1
+Stale Overwrite Successfully Blocked: Verified.

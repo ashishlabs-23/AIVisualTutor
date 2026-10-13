@@ -1,6 +1,7 @@
-=== Test P10-02: Apparent State Mismatch ===
+=== Test P10-02: Wrong Mode Recommendation ===
 Result: PASS
 Recommendation Type: CORRECT_STATE
 Title: Switch to OBJECT Mode
 Action Steps: Switch mode to OBJECT (Shortcut: Tab).; Shortcut: Press 'Tab' in Blender.
 Shortcut Provided: Tab
+Expected Outcome: Observed state reflects: OBJECT.

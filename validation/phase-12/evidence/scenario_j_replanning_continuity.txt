@@ -1,0 +1,7 @@
+=== SCENARIO J: RE-PLANNING CONTINUITY ===
+Timestamp: 2026-10-13T05:42:31.421570900Z
+Initial Version: 1 | New Version: 2
+Completed Steps in Initial: [step_1]
+Preserved Completed Steps in Revised: [step_1]
+Stale Operation step_2 (with version 1) recorded into completed: false
+Revised Completion Status: PARTIALLY_SATISFIED

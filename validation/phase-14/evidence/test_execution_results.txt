@@ -1,0 +1,54 @@
+================================================================================
+AIVISUALTUTOR PHASE 14 AUTOMATED TEST EXECUTION RESULTS
+================================================================================
+Timestamp: 2026-10-13T12:38:00+05:30
+Environment: Windows 11 (AMD64), JDK 17, Gradle 8.9
+
+TARGETED PHASE 14 TEST SUITE:
+Command: .\gradlew.bat test --tests "overlay.Phase14DesktopOverlayTest"
+Result: BUILD SUCCESSFUL (15s)
+Tests Run: 20
+Failures: 0
+Errors: 0
+Skipped: 0
+
+Tests:
+- Phase14DesktopOverlayTest > blenderWindowExistsDiscoveryReturnsFound: PASSED
+- Phase14DesktopOverlayTest > blenderWindowAbsentReturnsNotRunning: PASSED
+- Phase14DesktopOverlayTest > unrelatedWindowWithMatchingWordIsNotMistakenForBlender: PASSED
+- Phase14DesktopOverlayTest > multipleBlenderWindowsSelectsPrimaryWorkspaceByAreaPolicy: PASSED
+- Phase14DesktopOverlayTest > previouslyValidHandleBecomesInvalidWhenBlenderCloses: PASSED
+- Phase14DesktopOverlayTest > minimizedBlenderWindowProducesExplicitMinimizedResult: PASSED
+- Phase14DesktopOverlayTest > overlayManagerTracksVisibilityAndHighlightRegionsAccurately: PASSED
+- Phase14DesktopOverlayTest > repeatedShowCallsDoNotCreateDuplicateOverlayStates: PASSED
+- Phase14DesktopOverlayTest > enableWindowsClickThroughExecutesSafely: PASSED
+- Phase14DesktopOverlayTest > coordinateTransformWindowRelativeToPhysicalAndBackPreservesFidelity: PASSED
+- Phase14DesktopOverlayTest > coordinateTransformHandlesNegativeDesktopOrigins: PASSED
+- Phase14DesktopOverlayTest > coordinateTransformHandlesOriginAndBoundaryConditions: PASSED
+- Phase14DesktopOverlayTest > coordinateTransformHandlesScreenshotRasterScale: PASSED
+- Phase14DesktopOverlayTest > coordinateTransformConvertsHighlightRegionWithVirtualScreenOffset: PASSED
+- Phase14DesktopOverlayTest > coordinateTransformRejectsInvalidWindowDimensions: PASSED
+- Phase14DesktopOverlayTest > capturePreservesWindowIdentityAccurately: PASSED
+- Phase14DesktopOverlayTest > captureFailureDoesNotModifyLearnerCompetenceOrCompleteStep: PASSED
+- Phase14DesktopOverlayTest > captureWithMinimizedBlenderProducesExplicitErrorWithRetry: PASSED
+- Phase14DesktopOverlayTest > tutorDoesNotStealFocusContinuously: PASSED
+- Phase14DesktopOverlayTest > failedFocusRequestIsNotTreatedAsLearnerFailure: PASSED
+
+TARGETED OVERLAY MANAGER TEST SUITE:
+Command: .\gradlew.bat test --tests "overlay.OverlayManagerTest"
+Result: BUILD SUCCESSFUL (7s)
+Tests Run: 2
+Failures: 0
+Errors: 0
+Skipped: 0
+
+FULL TEST SUITE ACROSS ALL PHASES (PHASES 6-14):
+Command: .\gradlew.bat test
+Result: BUILD SUCCESSFUL (1m 11s)
+Total Tests: 601
+Passed: 598
+Failures: 0
+Errors: 0
+Skipped / Ignored: 3 (Live interactive desktop tests requiring foreground Blender UI)
+Success Rate: 100%
+================================================================================

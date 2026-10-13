@@ -1,5 +1,7 @@
 package pedagogy
 
+import java.time.Instant
+
 /**
  * Configuration parameters for the deterministic adaptation policy.
  * All thresholds are explicit, positive integers and floating-point parameters.
@@ -32,35 +34,22 @@ data class PolicyDecision(
     val updatedLearnerState: LearnerState,
     val rationale: String,
     val stageChanged: Boolean,
-    val reassessmentRecommended: Boolean
+    val reassessmentRecommended: Boolean,
+    val strategy: AdaptationStrategy = AdaptationStrategy.NORMAL_GUIDANCE
 )
 
 /**
- * Deterministic adaptation policy implementing pedagogical fading and scaffolding recovery.
- * It governs guidance-level transitions based strictly on verified evidence without LLM dependency.
+ * Deterministic adaptation policy implementing pedagogical fading, scaffolding recovery,
+ * evidence-based skill mastery tracking, and explainable instruction adaptation.
+ *
+ * Governs guidance transitions based strictly on verified evidence without LLM dependency.
  */
 class AdaptationPolicy(
     val config: AdaptationPolicyConfig = AdaptationPolicyConfig()
 ) {
 
     /**
-     * Transition table summary:
-     *
-     * | Current Stage | Outcome | Condition | Next Stage | Rationale |
-     * |---|---|---|---|---|
-     * | Stage 1 | VERIFIED_SUCCESS | stageConsecutiveSuccesses >= 2 | Stage 2 | Demonstrated initial competence: faded to Conceptual Hint |
-     * | Stage 1 | VERIFIED_SUCCESS | stageConsecutiveSuccesses < 2 | Stage 1 | Consecutive success 1/2: remaining at Direct Guidance |
-     * | Stage 2 | VERIFIED_SUCCESS | stageConsecutiveSuccesses >= 1 && task.supportsStage3 | Stage 3 | Further verified competence: faded to Reflection Question |
-     * | Stage 2 | VERIFIED_SUCCESS | stageConsecutiveSuccesses >= 1 && !task.supportsStage3 | Stage 2 | Demonstrated competence, but task not suitable for Stage 3 |
-     * | Stage 2 | VERIFIED_SUCCESS | stageConsecutiveSuccesses < 1 | Stage 2 | Consecutive success at Stage 2 |
-     * | Stage 3 | VERIFIED_SUCCESS | any | Stage 3 | Maintained independent reflection level |
-     * | Any | VERIFIED_FAILURE | consecutiveFailures == 1 | Current Stage | First failure: retaining stage to reassess instruction |
-     * | Stage 3 | VERIFIED_FAILURE | consecutiveFailures == 2 | Stage 2 | 2 consecutive failures: stepping back to Conceptual Hint |
-     * | Stage 2 | VERIFIED_FAILURE | consecutiveFailures == 2 | Stage 1 | 2 consecutive failures: stepping back to Direct Guidance |
-     * | Any | VERIFIED_FAILURE | consecutiveFailures >= 3 | Stage 1 | 3 consecutive failures: full scaffolding + reassessment flagged |
-     * | Any | UNCERTAIN | any | Current Stage | Inconclusive verification: streaks and competence preserved |
-     * | Any | NOT_EVALUATED | any | Current Stage | Missing evaluation: streaks and competence preserved |
-     * | Any | Context Switch | different skill | Stage 1 | New skill context: beginner baseline without ungrounded transfer |
+     * Evaluates a verified pedagogical outcome against the current learner model.
      */
     fun evaluateOutcome(
         currentState: LearnerState,
@@ -68,14 +57,22 @@ class AdaptationPolicy(
         outcome: PedagogicalOutcome,
         explanation: String = "",
         evidenceConfidence: Double? = null,
-        verificationRunId: String? = null
+        verificationRunId: String? = null,
+        mismatchCategory: String? = null,
+        failureCause: FailureCause = FailureCause.LEARNER_ACTION
     ): PolicyDecision {
         val currentProfile = currentState.profileForTask(task.taskId, task.skillId)
 
         return when (outcome) {
-            PedagogicalOutcome.VERIFIED_SUCCESS -> handleSuccess(currentState, currentProfile, task, explanation, evidenceConfidence, verificationRunId)
-            PedagogicalOutcome.VERIFIED_FAILURE -> handleFailure(currentState, currentProfile, task, explanation, evidenceConfidence, verificationRunId)
-            PedagogicalOutcome.UNCERTAIN -> handleUncertain(currentState, currentProfile, task, explanation, evidenceConfidence, verificationRunId)
+            PedagogicalOutcome.VERIFIED_SUCCESS -> handleSuccess(
+                currentState, currentProfile, task, explanation, evidenceConfidence, verificationRunId
+            )
+            PedagogicalOutcome.VERIFIED_FAILURE -> handleFailure(
+                currentState, currentProfile, task, explanation, evidenceConfidence, verificationRunId, mismatchCategory, failureCause
+            )
+            PedagogicalOutcome.UNCERTAIN -> handleUncertain(
+                currentState, currentProfile, task, explanation, evidenceConfidence, verificationRunId
+            )
             PedagogicalOutcome.NOT_EVALUATED -> handleNotEvaluated(currentState, task)
         }
     }
@@ -94,7 +91,7 @@ class AdaptationPolicy(
         val currentStage = profile.guidanceStage
 
         var nextStageSuccesses = newStageSuccesses
-        val (nextStage, rationale) = when (currentStage) {
+        var (nextStage, rationale) = when (currentStage) {
             GuidanceStage.STAGE_1_EXACT_GUIDANCE -> {
                 if (newStageSuccesses >= config.successesForFadingToStage2) {
                     nextStageSuccesses = 0
@@ -126,6 +123,12 @@ class AdaptationPolicy(
             }
         }
 
+        // Respect explicit learner preference for guidance stage if specified
+        if (state.preferences.preferredGuidanceStage != null) {
+            nextStage = state.preferences.preferredGuidanceStage
+            rationale += " Explicit learner preference applied (${nextStage.displayName})."
+        }
+
         val updatedProfile = profile.copy(
             guidanceStage = nextStage,
             consecutiveSuccesses = newSuccesses,
@@ -134,8 +137,40 @@ class AdaptationPolicy(
             totalSuccesses = profile.totalSuccesses + 1,
             competenceEstimate = newCompetence,
             lastOutcome = PedagogicalOutcome.VERIFIED_SUCCESS,
-            lastAttemptAt = java.time.Instant.now()
+            lastAttemptAt = Instant.now()
         )
+
+        // Update demonstrated skill evidence (Rule 3: tied strictly to verified evidence)
+        val currentSkill = state.demonstratedSkills[task.skillId] ?: DemonstratedSkill(
+            skillId = task.skillId,
+            displayName = formatSkillName(task.skillId)
+        )
+        val skillSuccesses = currentSkill.verifiedSuccessCount + 1
+        val skillConsecutive = currentSkill.consecutiveSuccessCount + 1
+        val skillMastery = SkillMasteryLevel.fromSuccessCounts(skillSuccesses, skillConsecutive)
+        val updatedSkill = currentSkill.copy(
+            masteryLevel = skillMastery,
+            verifiedSuccessCount = skillSuccesses,
+            consecutiveSuccessCount = skillConsecutive,
+            totalAttempts = currentSkill.totalAttempts + 1,
+            lastVerifiedAt = Instant.now()
+        )
+        val updatedSkills = state.demonstratedSkills + (task.skillId to updatedSkill)
+
+        // Resolve recurring difficulties on this skill if learner consistently succeeds
+        val updatedDifficulties = if (skillConsecutive >= 2) {
+            state.recordedDifficulties.filterKeys { !it.startsWith(task.skillId) }
+        } else {
+            state.recordedDifficulties
+        }
+
+        // Determine adaptation strategy
+        val strategy = when {
+            state.preferences.detailPreference == DetailPreference.CONCISE ||
+                skillMastery == SkillMasteryLevel.CONSISTENTLY_DEMONSTRATED -> AdaptationStrategy.CONCISE_INSTRUCTION
+            state.preferences.detailPreference == DetailPreference.DETAILED -> AdaptationStrategy.DETAILED_INSTRUCTION
+            else -> AdaptationStrategy.NORMAL_GUIDANCE
+        }
 
         val updatedProfiles = state.taskProfiles + (task.taskId to updatedProfile)
         val attempt = PedagogicalAttempt(
@@ -146,6 +181,13 @@ class AdaptationPolicy(
             verificationRunId = verificationRunId,
             explanation = explanation,
             evidenceConfidence = evidenceConfidence
+        )
+
+        val decisionRecord = AdaptationDecisionRecord(
+            taskId = task.taskId,
+            skillId = task.skillId,
+            strategy = strategy,
+            evidenceReason = rationale
         )
 
         val updatedState = state.copy(
@@ -161,7 +203,12 @@ class AdaptationPolicy(
             adaptationReason = rationale,
             requiresReassessment = false,
             recentAttempts = (state.recentAttempts + attempt).takeLast(50),
-            taskProfiles = updatedProfiles
+            taskProfiles = updatedProfiles,
+            demonstratedSkills = updatedSkills,
+            verifiedOutcomes = state.verifiedOutcomes + task.taskId,
+            recordedDifficulties = updatedDifficulties,
+            adaptationDecisions = (state.adaptationDecisions + decisionRecord).takeLast(50),
+            updatedAt = Instant.now()
         )
 
         return PolicyDecision(
@@ -169,7 +216,8 @@ class AdaptationPolicy(
             updatedLearnerState = updatedState,
             rationale = rationale,
             stageChanged = nextStage != currentStage,
-            reassessmentRecommended = false
+            reassessmentRecommended = false,
+            strategy = strategy
         )
     }
 
@@ -179,14 +227,44 @@ class AdaptationPolicy(
         task: LearningTask,
         explanation: String,
         evidenceConfidence: Double?,
-        verificationRunId: String? = null
+        verificationRunId: String?,
+        mismatchCategory: String?,
+        failureCause: FailureCause
     ): PolicyDecision {
+        // Rule 2: Failed attempts are not automatically learner weaknesses
+        if (failureCause == FailureCause.INFRASTRUCTURE_OR_PROVIDER || failureCause == FailureCause.UNCERTAIN_EVIDENCE) {
+            val infraRationale = "Verification outcome unconfirmed due to telemetry/provider condition ($explanation). Learner competence and skill mastery preserved."
+            val attempt = PedagogicalAttempt(
+                taskId = task.taskId,
+                skillId = task.skillId,
+                guidanceStage = profile.guidanceStage,
+                outcome = PedagogicalOutcome.UNCERTAIN,
+                verificationRunId = verificationRunId,
+                explanation = infraRationale,
+                evidenceConfidence = evidenceConfidence
+            )
+            val updatedState = state.copy(
+                adaptationReason = infraRationale,
+                totalUncertainOutcomes = state.totalUncertainOutcomes + 1,
+                recentAttempts = (state.recentAttempts + attempt).takeLast(50),
+                updatedAt = Instant.now()
+            )
+            return PolicyDecision(
+                nextGuidanceStage = profile.guidanceStage,
+                updatedLearnerState = updatedState,
+                rationale = infraRationale,
+                stageChanged = false,
+                reassessmentRecommended = false,
+                strategy = AdaptationStrategy.NORMAL_GUIDANCE
+            )
+        }
+
         val newFailures = profile.consecutiveFailures + 1
         val newCompetence = (profile.competenceEstimate - config.competenceLossOnFailure).coerceAtLeast(0.0)
         val currentStage = profile.guidanceStage
 
         var reassess = false
-        val (nextStage, rationale) = when {
+        var (nextStage, rationale) = when {
             newFailures >= config.failuresForStage1Fallback -> {
                 reassess = true
                 GuidanceStage.STAGE_1_EXACT_GUIDANCE to
@@ -203,6 +281,68 @@ class AdaptationPolicy(
             }
         }
 
+        // Respect explicit learner preference for guidance stage if specified
+        if (state.preferences.preferredGuidanceStage != null) {
+            nextStage = state.preferences.preferredGuidanceStage
+            rationale += " Explicit learner preference applied (${nextStage.displayName})."
+        }
+
+        // Record learner difficulty only on repeated (2+) verified errors (Rule 2 & 3)
+        var updatedDifficulties = state.recordedDifficulties
+        var practiceRecs = state.practiceRecommendations
+        var strategy = when {
+            state.preferences.detailPreference == DetailPreference.DETAILED -> AdaptationStrategy.DETAILED_INSTRUCTION
+            state.preferences.detailPreference == DetailPreference.CONCISE -> AdaptationStrategy.CONCISE_INSTRUCTION
+            else -> AdaptationStrategy.NORMAL_GUIDANCE
+        }
+
+        if (newFailures >= 2) {
+            val diffKey = "${task.skillId}_${mismatchCategory ?: "general"}"
+            val existingDiff = state.recordedDifficulties[diffKey]
+            val occurrence = (existingDiff?.occurrenceCount ?: 1) + 1
+            val updatedDiff = LearnerDifficulty(
+                difficultyId = existingDiff?.difficultyId ?: java.util.UUID.randomUUID().toString(),
+                skillId = task.skillId,
+                errorCategory = mismatchCategory ?: "State Mismatch",
+                occurrenceCount = occurrence,
+                explanation = explanation.ifBlank { "Repeated state mismatch observed on '${task.title}'" },
+                firstOccurredAt = existingDiff?.firstOccurredAt ?: Instant.now(),
+                lastOccurredAt = Instant.now()
+            )
+            updatedDifficulties = state.recordedDifficulties + (diffKey to updatedDiff)
+
+            strategy = if (state.preferences.wantsSmallerSteps || newFailures >= config.failuresForStage1Fallback) {
+                AdaptationStrategy.SMALLER_STEP
+            } else {
+                AdaptationStrategy.DETAILED_INSTRUCTION
+            }
+            rationale += " Repeated verified difficulty ($mismatchCategory) detected; adapting instruction strategy to ${strategy.name}."
+
+            // Generate targeted practice recommendation if enabled
+            if (state.preferences.practiceRecommendationsEnabled && practiceRecs.none { it.skillId == task.skillId && !it.isCompleted }) {
+                val rec = PracticeRecommendation(
+                    skillId = task.skillId,
+                    title = "Targeted Practice: ${task.title}",
+                    description = "Take a moment to practice '${task.title}' in isolation to build confidence.",
+                    suggestedGoalText = "Practice ${task.title.lowercase()}",
+                    rationale = "Repeated verified difficulty ($mismatchCategory) on ${formatSkillName(task.skillId)}."
+                )
+                practiceRecs = practiceRecs + rec
+            }
+        }
+
+        // Reset consecutive successes for demonstrated skill without permanently wiping historical practiced count
+        val currentSkill = state.demonstratedSkills[task.skillId]
+        val updatedSkills = if (currentSkill != null) {
+            val resetSkill = currentSkill.copy(
+                consecutiveSuccessCount = 0,
+                totalAttempts = currentSkill.totalAttempts + 1
+            )
+            state.demonstratedSkills + (task.skillId to resetSkill)
+        } else {
+            state.demonstratedSkills
+        }
+
         val updatedProfile = profile.copy(
             guidanceStage = nextStage,
             consecutiveSuccesses = 0,
@@ -211,7 +351,7 @@ class AdaptationPolicy(
             totalFailures = profile.totalFailures + 1,
             competenceEstimate = newCompetence,
             lastOutcome = PedagogicalOutcome.VERIFIED_FAILURE,
-            lastAttemptAt = java.time.Instant.now()
+            lastAttemptAt = Instant.now()
         )
 
         val updatedProfiles = state.taskProfiles + (task.taskId to updatedProfile)
@@ -223,6 +363,13 @@ class AdaptationPolicy(
             verificationRunId = verificationRunId,
             explanation = explanation,
             evidenceConfidence = evidenceConfidence
+        )
+
+        val decisionRecord = AdaptationDecisionRecord(
+            taskId = task.taskId,
+            skillId = task.skillId,
+            strategy = strategy,
+            evidenceReason = rationale
         )
 
         val updatedState = state.copy(
@@ -238,7 +385,12 @@ class AdaptationPolicy(
             adaptationReason = rationale,
             requiresReassessment = reassess,
             recentAttempts = (state.recentAttempts + attempt).takeLast(50),
-            taskProfiles = updatedProfiles
+            taskProfiles = updatedProfiles,
+            demonstratedSkills = updatedSkills,
+            recordedDifficulties = updatedDifficulties,
+            practiceRecommendations = practiceRecs,
+            adaptationDecisions = (state.adaptationDecisions + decisionRecord).takeLast(50),
+            updatedAt = Instant.now()
         )
 
         return PolicyDecision(
@@ -246,7 +398,8 @@ class AdaptationPolicy(
             updatedLearnerState = updatedState,
             rationale = rationale,
             stageChanged = nextStage != currentStage,
-            reassessmentRecommended = reassess
+            reassessmentRecommended = reassess,
+            strategy = strategy
         )
     }
 
@@ -263,7 +416,7 @@ class AdaptationPolicy(
         val updatedProfile = profile.copy(
             totalUncertain = profile.totalUncertain + 1,
             lastOutcome = PedagogicalOutcome.UNCERTAIN,
-            lastAttemptAt = java.time.Instant.now()
+            lastAttemptAt = Instant.now()
         )
 
         val attempt = PedagogicalAttempt(
@@ -283,7 +436,8 @@ class AdaptationPolicy(
             evidenceConfidence = evidenceConfidence ?: state.evidenceConfidence,
             adaptationReason = rationale,
             recentAttempts = (state.recentAttempts + attempt).takeLast(50),
-            taskProfiles = state.taskProfiles + (task.taskId to updatedProfile)
+            taskProfiles = state.taskProfiles + (task.taskId to updatedProfile),
+            updatedAt = Instant.now()
         )
 
         return PolicyDecision(
@@ -291,7 +445,8 @@ class AdaptationPolicy(
             updatedLearnerState = updatedState,
             rationale = rationale,
             stageChanged = false,
-            reassessmentRecommended = false
+            reassessmentRecommended = false,
+            strategy = AdaptationStrategy.NORMAL_GUIDANCE
         )
     }
 
@@ -305,7 +460,8 @@ class AdaptationPolicy(
             updatedLearnerState = state.copy(adaptationReason = rationale),
             rationale = rationale,
             stageChanged = false,
-            reassessmentRecommended = false
+            reassessmentRecommended = false,
+            strategy = AdaptationStrategy.NORMAL_GUIDANCE
         )
     }
 
@@ -320,22 +476,25 @@ class AdaptationPolicy(
         val existingProfile = currentState.taskProfiles[newTask.taskId]
 
         if (existingProfile != null) {
-            val rationale = "Resumed existing profile for task '${newTask.title}' at ${existingProfile.guidanceStage.displayName}."
+            val stageToUse = currentState.preferences.preferredGuidanceStage ?: existingProfile.guidanceStage
+            val rationale = "Resumed existing profile for task '${newTask.title}' at ${stageToUse.displayName}."
             val updatedState = currentState.copy(
                 currentTaskId = newTask.taskId,
                 currentSkillId = newTask.skillId,
-                currentGuidanceStage = existingProfile.guidanceStage,
+                currentGuidanceStage = stageToUse,
                 consecutiveSuccesses = existingProfile.consecutiveSuccesses,
                 consecutiveFailures = existingProfile.consecutiveFailures,
                 competenceEstimate = existingProfile.competenceEstimate,
-                adaptationReason = rationale
+                adaptationReason = rationale,
+                updatedAt = Instant.now()
             )
             return PolicyDecision(
-                nextGuidanceStage = existingProfile.guidanceStage,
+                nextGuidanceStage = stageToUse,
                 updatedLearnerState = updatedState,
                 rationale = rationale,
-                stageChanged = existingProfile.guidanceStage != currentState.currentGuidanceStage,
-                reassessmentRecommended = false
+                stageChanged = stageToUse != currentState.currentGuidanceStage,
+                reassessmentRecommended = false,
+                strategy = if (currentState.preferences.detailPreference == DetailPreference.CONCISE) AdaptationStrategy.CONCISE_INSTRUCTION else AdaptationStrategy.NORMAL_GUIDANCE
             )
         }
 
@@ -352,7 +511,7 @@ class AdaptationPolicy(
             }
             Triple(
                 candidateStage,
-                avgCompetence * 0.7, // conservative domain transfer
+                avgCompetence * 0.7,
                 "Task '${newTask.title}' shares skill domain '${newTask.skillId}'; initialized at ${candidateStage.displayName} based on domain history."
             )
         } else {
@@ -363,31 +522,41 @@ class AdaptationPolicy(
             )
         }
 
+        val stageToUse = currentState.preferences.preferredGuidanceStage ?: initialStage
         val newProfile = TaskLearnerProfile(
             taskId = newTask.taskId,
             skillId = newTask.skillId,
-            guidanceStage = initialStage,
+            guidanceStage = stageToUse,
             competenceEstimate = initialCompetence
         )
 
         val updatedState = currentState.copy(
             currentTaskId = newTask.taskId,
             currentSkillId = newTask.skillId,
-            currentGuidanceStage = initialStage,
+            currentGuidanceStage = stageToUse,
             consecutiveSuccesses = 0,
             consecutiveFailures = 0,
             competenceEstimate = initialCompetence,
             adaptationReason = rationale,
             requiresReassessment = false,
-            taskProfiles = currentState.taskProfiles + (newTask.taskId to newProfile)
+            taskProfiles = currentState.taskProfiles + (newTask.taskId to newProfile),
+            updatedAt = Instant.now()
         )
 
         return PolicyDecision(
-            nextGuidanceStage = initialStage,
+            nextGuidanceStage = stageToUse,
             updatedLearnerState = updatedState,
             rationale = rationale,
-            stageChanged = initialStage != currentState.currentGuidanceStage,
-            reassessmentRecommended = false
+            stageChanged = stageToUse != currentState.currentGuidanceStage,
+            reassessmentRecommended = false,
+            strategy = if (currentState.preferences.detailPreference == DetailPreference.CONCISE) AdaptationStrategy.CONCISE_INSTRUCTION else AdaptationStrategy.NORMAL_GUIDANCE
         )
+    }
+
+    private fun formatSkillName(skillId: String): String {
+        return skillId.substringAfterLast('.')
+            .replace('_', ' ')
+            .split(' ')
+            .joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
     }
 }

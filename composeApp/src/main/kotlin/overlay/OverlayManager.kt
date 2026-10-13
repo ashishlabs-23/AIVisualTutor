@@ -15,11 +15,27 @@ class OverlayManager {
     var isOverlayVisible by mutableStateOf(false)
         private set
 
-    fun showOverlay() {
+    var isClickThroughEnabled by mutableStateOf(false)
+        private set
+
+    var activeHighlightRegion by mutableStateOf<models.HighlightRegion?>(null)
+        private set
+
+    fun showOverlay(region: models.HighlightRegion? = null) {
+        if (region != null) {
+            activeHighlightRegion = region
+        }
         isOverlayVisible = true
+        isClickThroughEnabled = true
     }
 
     fun hideOverlay() {
         isOverlayVisible = false
+        isClickThroughEnabled = false
+        activeHighlightRegion = null
+    }
+
+    fun updateClickThrough(enabled: Boolean) {
+        isClickThroughEnabled = enabled
     }
 }

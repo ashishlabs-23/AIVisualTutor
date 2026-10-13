@@ -69,7 +69,13 @@ import java.awt.Rectangle
  * file only decides which windows are visible and how big the main
  * window should be.
  */
-fun main() = application {
+fun main() {
+    if (System.getProperty("os.name").startsWith("Windows", ignoreCase = true)) {
+        if (System.getProperty("skiko.renderApi") == null) {
+            System.setProperty("skiko.renderApi", "SOFTWARE_FAST")
+        }
+    }
+    application {
     val controller = remember { TutorController() }
     val overlayManager = remember { OverlayManager() }
     val previewScope = rememberCoroutineScope()
@@ -81,6 +87,7 @@ fun main() = application {
     val regionCapture = remember { WgcScreenCaptureService(lifecycleLogger) }
     val selectionController = remember { RegionSelectionController(lifecycleLogger) }
     val acquisition = remember { VisualContextAcquisition(selectionController, WindowsApplicationContextProvider(), regionCapture, contextProcessor, WindowsWindowFocusManager()) }
+    val blenderWindowLocator = remember { bridge.WindowsBlenderWindowLocator() }
 
     // Start with the full panel so the first-run UI is immediately visible.
     var isPanelExpanded by remember { mutableStateOf(true) }
@@ -472,8 +479,24 @@ fun main() = application {
     }
 
     if (overlayManager.isOverlayVisible) {
+        val currentStep = controller.stepsForCurrentApp().getOrNull(controller.state.currentStepIndex)
+        val resolvedRegion = overlayManager.activeHighlightRegion
+            ?: controller.state.currentHighlight
+            ?: controller.state.adaptiveInstruction?.targetRegion
+            ?: currentStep?.targetRegion
+        val resolvedTitle = controller.state.adaptiveInstruction?.targetControlName
+            ?: currentStep?.title
+            ?: "Step ${controller.state.currentStepIndex + 1}"
+        val resolvedInstruction = controller.state.adaptiveInstruction?.instructionText
+            ?: currentStep?.instruction
+            ?: controller.currentTargetDescription
+
         OverlayWindow(
             tutorState = controller.state,
+            activeHighlightRegion = resolvedRegion,
+            stepTitle = resolvedTitle,
+            stepInstruction = resolvedInstruction,
+            blenderWindowLocator = blenderWindowLocator,
             visible = isTutorWindowsVisible,
             onCloseRequest = { overlayManager.hideOverlay() }
         )
@@ -571,4 +594,5 @@ fun main() = application {
             }
         )
     }
+}
 }

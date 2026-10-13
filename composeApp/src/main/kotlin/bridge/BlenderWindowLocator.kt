@@ -37,6 +37,7 @@ sealed interface BlenderWindowResult {
 interface BlenderWindowLocator {
     suspend fun locateBlenderWindow(): BlenderWindowResult
     suspend fun bringBlenderToForeground(hwnd: Long): Boolean
+    suspend fun isWindowValid(hwnd: Long): Boolean = hwnd != 0L
 }
 
 /**
@@ -242,6 +243,22 @@ class WindowsBlenderWindowLocator : BlenderWindowLocator {
         output?.lineSequence()?.lastOrNull()?.trim() == "True"
     }
 
+    override suspend fun isWindowValid(hwnd: Long): Boolean = withContext(Dispatchers.IO) {
+        if (!System.getProperty("os.name").startsWith("Windows", ignoreCase = true) || hwnd == 0L) {
+            return@withContext false
+        }
+        val csharpSource = """
+            using System;
+            using System.Runtime.InteropServices;
+            public static class AivtValidateWindow {
+                [DllImport("user32.dll")] static extern bool IsWindow(IntPtr hWnd);
+                public static bool Check(long raw) { return IsWindow(new IntPtr(raw)); }
+            }
+        """.trimIndent()
+        val output = runPowerShell(csharpSource, "[AivtValidateWindow]::Check($hwnd)")
+        output?.lineSequence()?.lastOrNull()?.trim() == "True"
+    }
+
     private fun runPowerShell(source: String, expression: String): String? {
         val encoded = Base64.getEncoder().encodeToString(source.toByteArray(Charsets.UTF_8))
         val script = "Add-Type -TypeDefinition ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$encoded'))); $expression"
@@ -262,3 +279,22 @@ class WindowsBlenderWindowLocator : BlenderWindowLocator {
         return process.inputStream.bufferedReader().use { it.readText().trim() }.takeIf { it.isNotBlank() }
     }
 }
+
+/**
+ * Resolves the installed Blender executable on the host machine.
+ */
+object BlenderExecutableLocator {
+    fun findBlenderExecutable(): java.io.File? {
+        val env = System.getenv("AIVT_BLENDER_EXECUTABLE")?.takeIf { it.isNotBlank() }
+        val candidates = listOfNotNull(
+            env,
+            "C:\\Program Files\\Blender Foundation\\Blender 5.2\\blender.exe",
+            "C:\\Program Files\\Blender Foundation\\Blender 4.2\\blender.exe",
+            "C:\\Program Files\\Blender Foundation\\Blender 4.1\\blender.exe",
+            "C:\\Program Files\\Blender Foundation\\Blender 4.0\\blender.exe",
+            "D:\\blender.exe"
+        ).map { java.io.File(it) }
+        return candidates.firstOrNull { it.isFile }
+    }
+}
+

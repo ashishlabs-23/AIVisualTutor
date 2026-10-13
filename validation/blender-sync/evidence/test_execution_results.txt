@@ -1,0 +1,54 @@
+===============================================================================
+AIVisualTutor Automated Test Execution Results: Blender State Sync & Verification
+===============================================================================
+
+Timestamp: 2026-10-13T10:37:07Z
+Environment: Windows 11 / OpenJDK 17.0.20 / Gradle 8.9
+
+Command: ./gradlew.bat test --tests bridge.BlenderSyncRegressionTest
+Output:
+> Task :composeApp:compileKotlin UP-TO-DATE
+> Task :composeApp:compileTestKotlin UP-TO-DATE
+> Task :composeApp:testClasses UP-TO-DATE
+> Task :composeApp:test
+
+BlenderSyncRegressionTest > test1_sphereAlreadyExists_verifiesSuccessfullyAndAdvances PASSED [0.026s]
+BlenderSyncRegressionTest > test2_sphereCreatedAfterInitialEmptyObservation_verifiesFreshState PASSED [0.010s]
+BlenderSyncRegressionTest > test3_wrongMeshObject_cannotClaimUvSphereConfirmed PASSED [0.007s]
+BlenderSyncRegressionTest > test4_providerFailure_doesNotMistakeForEmptySceneAndAllowsRetry PASSED [0.005s]
+BlenderSyncRegressionTest > test5_prerequisiteStateConsistency_uiAndAuthoritativeTrackerAgree PASSED [0.024s]
+BlenderSyncRegressionTest > test6_staleAsynchronousResponse_cannotOverwriteNewerState PASSED [0.006s]
+BlenderSyncRegressionTest > test7_retryLimitReached_recoversWhenBlenderStateChanges PASSED [0.029s]
+BlenderSyncRegressionTest > test8_uiSynchronization_stateUpdatesWithoutRestart PASSED [0.280s]
+BlenderSyncRegressionTest > test9_multipleSimilarObjects_verifierDoesNotConfuseUnrelatedNames PASSED [0.001s]
+BlenderSyncRegressionTest > test10_planOrTaskIdentityChange_delayedResultCannotMarkNewTaskComplete PASSED [0.004s]
+
+BUILD SUCCESSFUL in 4s
+10 actionable tasks: 1 executed, 9 up-to-date
+10 tests completed, 0 failed, 0 skipped.
+
+===============================================================================
+Full Automated Suite Execution
+===============================================================================
+
+Command: ./gradlew.bat test
+Output:
+> Task :composeApp:compileKotlin UP-TO-DATE
+> Task :composeApp:compileTestKotlin UP-TO-DATE
+> Task :composeApp:testClasses UP-TO-DATE
+> Task :composeApp:test
+
+Estimating resolution as 331
+Estimating resolution as 903
+Estimating resolution as 588
+Estimating resolution as 553
+Estimating resolution as 752
+
+BUILD SUCCESSFUL in 1m 9s
+8 actionable tasks: 1 executed, 7 up-to-date
+
+Total Tests Completed: 625
+Pass Count: 622
+Fail Count: 0
+Skipped / Ignored Count: 3 (Live Blender interactive environment-dependent tests)
+Success Rate: 100% (of executable automated tests)

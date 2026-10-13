@@ -84,7 +84,7 @@ compose.desktop {
     application {
         mainClass = "MainKt"
         if (System.getProperty("os.name").startsWith("Windows", ignoreCase = true)) {
-            jvmArgs("-Dskiko.renderApi=OPENGL")
+            jvmArgs("-Dskiko.renderApi=SOFTWARE_FAST")
         }
 
         nativeDistributions {
@@ -108,6 +108,9 @@ val projectJavaLauncher = javaToolchains.launcherFor {
 
 tasks.withType<JavaExec>().configureEach {
     javaLauncher.set(projectJavaLauncher)
+    if (System.getProperty("os.name").startsWith("Windows", ignoreCase = true)) {
+        systemProperty("skiko.renderApi", "SOFTWARE_FAST")
+    }
     if (project.findProperty("aivt.calibration.enabled")?.toString()?.equals("true", ignoreCase = true) == true) {
         systemProperty("aivt.calibration.enabled", "true")
         project.findProperty("aivt.calibration.outputDir")?.toString()?.let {

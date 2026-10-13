@@ -373,4 +373,116 @@ class AdaptiveNextStepRecommendationEngineTest {
         // 3. Current Step title intact
         assertEquals("Ensure Object Mode", controller.currentStep?.title)
     }
+
+    // =========================================================================
+    // 9. TEST P10-08: PREVIOUS RECOMMENDATION SUCCEEDED
+    // =========================================================================
+
+    @Test
+    fun `Test P10-08 - previous recommendation succeeded does not continue recommending resolved correction`() {
+        val context = createSampleContext(
+            stepTitle = "Ensure Object Mode",
+            stepInstruction = "Switch to Object Mode",
+            expectedOutcome = "OBJECT"
+        )
+        // Telemetry confirms Object Mode has now been reached
+        val tele = ObservedState(mode = "OBJECT")
+        val expected = ExpectedState(operation = VerificationOperation.MODIFY, targetMode = "OBJECT")
+        val visual = ScreenshotAnalysisResult(
+            summary = "Workspace is in Object Mode.",
+            observations = listOf(VisualObservation("Object Mode confirmed", "Header", 0.95)),
+            confidence = 0.95
+        )
+
+        val rec = engine.generateRecommendation(
+            context = context,
+            analysisResult = visual,
+            observedState = tele,
+            expectedState = expected
+        )
+
+        assertEquals(RecommendationType.CONTINUE, rec.recommendationType)
+        assertFalse(rec.title.contains("Switch from", ignoreCase = true))
+        assertFalse(rec.actionSteps.any { it.contains("Tab", ignoreCase = true) })
+        assertTrue(rec.actionSteps.any { it.contains("instruction", ignoreCase = true) })
+    }
+
+    // =========================================================================
+    // 10. TEST P10-09: MISSING PHASE 9 ANALYSIS RESULT
+    // =========================================================================
+
+    @Test
+    fun `Test P10-09 - missing Phase 9 analysis result handles gracefully without pretending visual insight`() {
+        val context = createSampleContext(
+            stepTitle = "Ensure Object Mode",
+            stepInstruction = "Switch to Object Mode",
+            expectedOutcome = "OBJECT"
+        )
+        // No analysis result available (analysisResult = null) and no telemetry -> insufficient evidence
+        val rec = engine.generateRecommendation(
+            context = context,
+            analysisResult = null,
+            observedState = null,
+            expectedState = ExpectedState(operation = VerificationOperation.MODIFY, targetMode = "OBJECT")
+        )
+
+        assertEquals(RecommendationType.REQUEST_MORE_EVIDENCE, rec.recommendationType)
+        assertTrue(rec.title.contains("Clearer View", ignoreCase = true))
+        assertTrue(rec.basedSolelyOnVisualEvidence)
+    }
+
+    // =========================================================================
+    // 11. TEST P10-10: STALE ANALYSIS OVERWRITE PROTECTION
+    // =========================================================================
+
+    @Test
+    fun `Test P10-10 - stale analysis request cannot overwrite newer tutoring context`() = runBlocking {
+        val controller = TutorController()
+        controller.startUserGoal("Create a UV sphere")
+
+        val captureFile = File.createTempFile("stale_test_", ".png").apply {
+            deleteOnExit()
+            val img = BufferedImage(100, 100, BufferedImage.TYPE_INT_RGB)
+            val g: Graphics2D = img.createGraphics()
+            g.color = Color.GRAY
+            g.fillRect(0, 0, 100, 100)
+            g.dispose()
+            ImageIO.write(img, "png", this)
+        }
+
+        val captureService = object : BlenderScreenCaptureService {
+            override suspend fun captureBlenderWorkspace(
+                excludeOverlayAction: (suspend () -> Unit)?,
+                restoreOverlayAction: (suspend () -> Unit)?
+            ): BlenderCaptureResult {
+                return BlenderCaptureResult.Success(
+                    image = ImageIO.read(captureFile),
+                    pngPath = captureFile.absolutePath,
+                    windowInfo = BlenderWindowInfo(1L, 1L, "Blender", Rectangle(0, 0, 100, 100), true, false, false, true),
+                    capturedAt = Instant.now()
+                )
+            }
+        }
+
+        val coordinator = ScreenshotHelpCoordinator(
+            controller = controller,
+            captureService = captureService
+        )
+
+        // Capture during Step 0
+        coordinator.startCapture()
+        assertTrue(coordinator.state is ScreenshotHelpWorkflowState.PreviewReady)
+
+        // Advance controller to Step 1
+        controller.nextStep()
+        assertEquals(1, controller.state.currentStepIndex)
+
+        // Confirming the old screenshot from Step 0 must fail due to stale context check!
+        val confirmed = coordinator.confirmScreenshot()
+        assertFalse(confirmed)
+        assertTrue(coordinator.state is ScreenshotHelpWorkflowState.Error)
+        val err = coordinator.state as ScreenshotHelpWorkflowState.Error
+        assertTrue(err.message.contains("different or expired", ignoreCase = true))
+    }
 }
+

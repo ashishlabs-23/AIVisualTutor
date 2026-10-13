@@ -211,8 +211,8 @@ class Phase9FinalLiveProviderVerificationTest {
 
         if (hasValidKey) {
             println(">>> Live API Key detected! Executing live multimodal test with real Blender capture...")
-            val blenderExe = File("D:\\blender.exe")
-            if (blenderExe.isFile) {
+            val blenderExe = BlenderExecutableLocator.findBlenderExecutable()
+            if (blenderExe != null && blenderExe.isFile) {
                 killAnyRunningBlender()
                 val proc = ProcessBuilder(blenderExe.absolutePath).start()
                 try {

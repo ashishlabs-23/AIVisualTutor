@@ -314,7 +314,11 @@ class ScreenshotHelpWorkflowTest {
             controller = controller,
             captureService = createMockCaptureService {
                 BlenderCaptureResult.Success(testImg, testPath, createSampleWindowInfo())
-            }
+            },
+            analysisBoundary = SmartMultimodalScreenshotAnalyzer(
+                groqKeyProvider = { "" },
+                geminiKeyProvider = { "" }
+            )
         )
 
         coordinator.startCapture()

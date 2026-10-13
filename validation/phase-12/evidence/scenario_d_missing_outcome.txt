@@ -1,0 +1,9 @@
+=== SCENARIO D: DELIBERATELY INCOMPLETE PLAN ===
+Timestamp: 2026-10-13T05:42:31.420569500Z
+Total Mandatory: 2
+Covered Mandatory: 1
+Uncovered Mandatory: 1
+Validation Status: NEEDS_REPAIR
+Explanation: Plan needs repair: 1 mandatory outcome(s) uncovered.
+Validation Issues:
+ - [UNCOVERED_MANDATORY_OUTCOME] Mandatory outcome 'A UV Sphere mesh object exists in the scene' is not covered by any plan step.

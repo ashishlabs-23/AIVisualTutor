@@ -1,5 +1,6 @@
-=== Test P10-03: Missing Telemetry Fallback ===
+=== Test P10-03: Wrong Selection Recommendation ===
 Result: PASS
 Recommendation Type: CORRECT_STATE
-Based Solely on Visual: true
-Uncertainty Notes: [Mode observation derived from screenshot without live socket telemetry.]
+Title: Select Object 'Sphere'
+Action Steps: Click on 'Sphere' in the top-right Outliner panel.; Alternatively, Left-Click 'Sphere' in the 3D Viewport.
+Evidence: Telemetry indicates 'Sphere' is unselected.; Top-left header indicates Object Mode

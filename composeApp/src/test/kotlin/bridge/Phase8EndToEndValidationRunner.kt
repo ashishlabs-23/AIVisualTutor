@@ -16,6 +16,7 @@ import kotlinx.coroutines.runBlocking
 import tutor.ScreenshotHelpCoordinator
 import tutor.ScreenshotHelpLifecycleStage
 import tutor.ScreenshotHelpWorkflowState
+import tutor.SmartMultimodalScreenshotAnalyzer
 import tutor.TutorController
 
 /**
@@ -70,7 +71,11 @@ class Phase8EndToEndValidationRunner {
 
         val controller = TutorController()
         controller.startUserGoal("Create a UV sphere and move it upward along the Z axis.")
-        val coordinator = ScreenshotHelpCoordinator(controller, captureService)
+        val coordinator = ScreenshotHelpCoordinator(
+            controller = controller,
+            captureService = captureService,
+            analysisBoundary = SmartMultimodalScreenshotAnalyzer(groqKeyProvider = { "" }, geminiKeyProvider = { "" })
+        )
 
         val e01Success = coordinator.startCapture()
         assertFalse(e01Success, "Capture must fail when Blender is not running")
@@ -91,8 +96,9 @@ class Phase8EndToEndValidationRunner {
         // -------------------------------------------------------------
         // LAUNCH REAL BLENDER 5.2
         // -------------------------------------------------------------
-        val blenderExe = File("D:\\blender.exe")
-        assertTrue(blenderExe.isFile, "Blender executable must exist at D:\\blender.exe")
+        val blenderExe = BlenderExecutableLocator.findBlenderExecutable()
+        assertNotNull(blenderExe, "Blender executable must be installed on host system")
+        assertTrue(blenderExe.isFile, "Blender executable must exist at ${blenderExe.absolutePath}")
         println("\n>>> Launching real Blender from ${blenderExe.absolutePath}...")
         val blenderProcess = ProcessBuilder(blenderExe.absolutePath).start()
 

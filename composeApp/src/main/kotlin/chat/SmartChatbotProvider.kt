@@ -7,8 +7,8 @@ package chat
  * 3. Graceful offline tutorial knowledge base if no keys are present.
  */
 class SmartChatbotProvider(
-    private val groqProvider: GroqChatbotProvider = GroqChatbotProvider(),
-    private val geminiProvider: GeminiChatbotProvider = GeminiChatbotProvider()
+    private val groqProvider: ChatbotProvider = GroqChatbotProvider(),
+    private val geminiProvider: ChatbotProvider = GeminiChatbotProvider()
 ) : ChatbotProvider {
 
     override suspend fun askTutor(context: ChatContext): ChatResponse {

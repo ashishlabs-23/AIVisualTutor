@@ -1,0 +1,6 @@
+=== Test P10-02: Apparent State Mismatch ===
+Result: PASS
+Recommendation Type: CORRECT_STATE
+Title: Switch to OBJECT Mode
+Action Steps: Switch mode to OBJECT (Shortcut: Tab).; Shortcut: Press 'Tab' in Blender.
+Shortcut Provided: Tab

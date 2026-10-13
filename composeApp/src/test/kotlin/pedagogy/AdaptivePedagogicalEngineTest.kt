@@ -430,9 +430,9 @@ class AdaptivePedagogicalEngineTest {
      */
     @Test
     fun testTaskScopingForBlenderOperationInTutorController() {
-        val controller = tutor.TutorController()
+        val controller = tutor.TutorController(loadMockTutorialByDefault = true)
         // Controller starts on Step 1: "Add Menu" (id=1, no expectedState)
-        assertEquals(1, controller.currentStep.id)
+        assertEquals(1, controller.currentStep?.id)
 
         // Verify CREATE Cube in Blender panel
         val expected = context.ExpectedState(

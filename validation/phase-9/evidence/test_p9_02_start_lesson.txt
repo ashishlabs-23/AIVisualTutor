@@ -1,0 +1,5 @@
+=== Test P9-02: Start Lesson ===
+Status: PASS
+Goal: Create a UV sphere and move it upward along the Z axis.
+Step 1: Ensure Object Mode
+Instruction: Switch to Object Mode in the 3D Viewport header.

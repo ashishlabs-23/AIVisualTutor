@@ -1,0 +1,6 @@
+=== TEST E01: Blender Unavailable Result ===
+Status: PASS
+Locator Result: bridge.BlenderWindowResult$NotRunning@40317ba2
+Workflow Error Message: Blender is not running. Please launch Blender and open your project.
+Workflow Can Retry: true
+Session Preserved: Goal='Create a UV sphere and move it upward along the Z axis.', Step=0 ('Ensure Object Mode')

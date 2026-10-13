@@ -1,0 +1,6 @@
+=== Test P9-11 & P9-14: Context Preservation and Safety ===
+Status: PASS
+Active Goal: 'Create a UV sphere and move it upward along the Z axis.' (Preserved)
+Active Step Index: 0 (Step 1)
+Active Step Title: 'Ensure Object Mode'
+Automatic Step Completion: FALSE (Visual analysis observes and describes; does not verify state)

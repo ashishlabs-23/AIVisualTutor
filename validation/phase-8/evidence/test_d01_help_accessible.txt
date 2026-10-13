@@ -1,0 +1,8 @@
+=== TEST D01: Help Action Accessibility ===
+Status: PASS
+Active Goal: Create a UV sphere and move it upward along the Z axis.
+Active Plan ID: plan_635454322
+Active Step Index: 0
+Active Step Title: Ensure Object Mode
+Active Step Instruction: Switch to Object Mode in the 3D Viewport header.
+Coordinator Initial Stage: IDLE

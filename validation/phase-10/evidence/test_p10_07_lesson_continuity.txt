@@ -1,0 +1,3 @@
+=== Test P10-07: Lesson Continuity Across Transitions ===
+Result: PASS
+Cancel -> Recapture -> Confirm cycle preserved step index 0 and goal.

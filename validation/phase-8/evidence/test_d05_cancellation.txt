@@ -1,0 +1,5 @@
+=== TEST D05: Cancellation Handling Result ===
+Status: PASS
+Stage after cancel: CANCELLED
+Temp File Cleaned Up: true
+Lesson Context Preserved: Goal='Create a UV sphere and move it upward along the Z axis.', Step=0

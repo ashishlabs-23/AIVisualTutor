@@ -324,15 +324,15 @@ fun main() = application {
         onDispose { controller.sessionContext.lastVisualContext?.image?.flush() }
     }
 
-    val dockSize = DpSize(140.dp, 56.dp)
-    val panelSize = DpSize(420.dp, 560.dp)
+    val dockSize = DpSize(160.dp, 52.dp)
+    val panelSize = DpSize(400.dp, 610.dp)
 
-    // rememberWindowState only uses `size` for the *first* composition, so
-    // toggling isPanelExpanded later needs an explicit side effect that
-    // writes to the already-created WindowState to actually resize the
-    // window each time the dock/panel is expanded or collapsed.
+    val screenBounds = remember { java.awt.Toolkit.getDefaultToolkit().screenSize }
+    val initialX = (screenBounds.width - 430).coerceAtLeast(60).dp
+    val initialY = 70.dp
+
     val mainWindowState = rememberWindowState(
-        position = WindowPosition(Alignment.Center),
+        position = WindowPosition(x = initialX, y = initialY),
         size = panelSize
     )
     LaunchedEffect(isPanelExpanded) {
@@ -344,10 +344,10 @@ fun main() = application {
         state = mainWindowState,
         title = "AI Visual Tutor",
         visible = isTutorWindowsVisible,
-        undecorated = false,
-        transparent = false,
+        undecorated = true,
+        transparent = true,
         resizable = false,
-        alwaysOnTop = false
+        alwaysOnTop = true
     ) {
         if (isPanelExpanded) {
             TutorPanel(
@@ -373,11 +373,45 @@ fun main() = application {
                 blenderVerificationFeedback = blenderVerificationFeedback,
                 onCaptureBlenderBaseline = ::captureBlenderBaseline,
                 onVerifyBlenderAction = ::verifyBlenderAction,
-                onAutoVerifyBlenderAction = ::autoVerifyBlenderAction
+                onAutoVerifyBlenderAction = ::autoVerifyBlenderAction,
+                onRequestScreenshotHelp = {
+                    previewScope.launch {
+                        controller.requestScreenshotHelp(
+                            excludeOverlayAction = { isTutorWindowsVisible = false },
+                            restoreOverlayAction = { isTutorWindowsVisible = true }
+                        )
+                    }
+                }
             )
         } else {
             TutorDock(onClick = { isPanelExpanded = true })
         }
+    }
+
+    val helpWorkflowState = controller.screenshotHelpCoordinator.state
+    if (helpWorkflowState !is tutor.ScreenshotHelpWorkflowState.Idle && helpWorkflowState !is tutor.ScreenshotHelpWorkflowState.Cancelled) {
+        ui.ScreenshotHelpPreviewDialog(
+            coordinator = controller.screenshotHelpCoordinator,
+            onDismissRequest = {
+                previewScope.launch {
+                    controller.screenshotHelpCoordinator.cancelHelp()
+                    controller.screenshotHelpCoordinator.dismiss()
+                }
+            },
+            onRetakeRequest = {
+                previewScope.launch {
+                    controller.screenshotHelpCoordinator.retakeScreenshot(
+                        excludeOverlayAction = { isTutorWindowsVisible = false },
+                        restoreOverlayAction = { isTutorWindowsVisible = true }
+                    )
+                }
+            },
+            onConfirmRequest = {
+                previewScope.launch {
+                    controller.screenshotHelpCoordinator.confirmScreenshot()
+                }
+            }
+        )
     }
 
     if (previewPngPath != null) {

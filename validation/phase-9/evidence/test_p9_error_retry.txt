@@ -1,0 +1,5 @@
+=== Test P9-12 & P9-13: Error Handling & Retry ===
+Status: PASS
+Error Caught: Analysis submission rejected: Simulated network timeout connecting to AI provider.
+Can Retry: true
+Session Preserved: Goal='Create a UV sphere and move it upward along the Z axis.', Step=0

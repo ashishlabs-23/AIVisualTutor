@@ -1,0 +1,8 @@
+=== TEST D03: Screenshot Preview Validation ===
+Status: PASS
+Preview Image Decodable: true
+Preview Width: 1366
+Preview Height: 768
+Context Associated Step ID: 1
+Context Associated Step Title: Ensure Object Mode
+Context Expected Outcome: null

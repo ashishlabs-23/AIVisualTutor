@@ -1,0 +1,8 @@
+=== Real Blender Window Information ===
+HWND: 1573086
+Process ID: 25852
+Window Title: (Unsaved) - Blender 5.2.2 LTS
+Window Bounds: java.awt.Rectangle[x=-8,y=-8,width=1382,height=784]
+Visible: true
+Minimized: false
+Maximized: true

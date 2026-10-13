@@ -54,6 +54,7 @@ fun ChatbotPanel(
     onCaptureScreen: (() -> Unit)? = null,
     chatbotProvider: ChatbotProvider = remember { SmartChatbotProvider() },
     contextBuilder: ChatContextBuilder = remember { ChatContextBuilder() },
+    onRequestScreenshotHelp: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val coroutineScope = rememberCoroutineScope()
@@ -86,6 +87,42 @@ fun ChatbotPanel(
         inputText = ""
         isThinking = true
 
+        val lower = trimmed.lowercase()
+        val isGoalQuery = lower.startsWith("goal:") ||
+            lower.startsWith("plan:") ||
+            lower.startsWith("i want to") ||
+            lower.startsWith("i need to") ||
+            (lower.startsWith("create ") && (lower.contains("sphere") || lower.contains("cube"))) ||
+            (lower.startsWith("make ") && (lower.contains("sphere") || lower.contains("cube")))
+
+        if (isGoalQuery) {
+            val goalClean = trimmed.replace(Regex("""^(goal:|plan:|i want to|i need to)\s*""", RegexOption.IGNORE_CASE), "").trim()
+            val finalGoal = if (goalClean.isNotBlank()) goalClean else trimmed
+            val plan = controller.startUserGoal(finalGoal)
+            if (plan != null) {
+                val firstStep = plan.steps.first()
+                val planStepsText = plan.steps.mapIndexed { idx, s -> "${idx + 1}. ${s.title}" }.joinToString("\n")
+                val tutorMsg = ChatMessage(
+                    sender = ChatSender.TUTOR,
+                    text = "🎯 Generated a ${plan.steps.size}-step plan for \"${plan.goalText}\":\n\n$planStepsText\n\n👉 Step 1: ${firstStep.instruction}",
+                    targetControl = firstStep.targetControlName,
+                    suggestedAction = if (firstStep.expectedState != null) "AUTO_VERIFY" else null
+                )
+                messages.add(tutorMsg)
+                coroutineScope.launch {
+                    if (firstStep.targetControlName != null) {
+                        controller.resolveTargetForName(firstStep.targetControlName)
+                        overlayManager?.showOverlay()
+                    }
+                    isThinking = false
+                    listState.animateScrollToItem((messages.size - 1).coerceAtLeast(0))
+                }
+            } else {
+                isThinking = false
+            }
+            return
+        }
+
         coroutineScope.launch {
             try {
                 val context = contextBuilder.buildContext(
@@ -99,14 +136,14 @@ fun ChatbotPanel(
                 val tutorMsg = ChatMessage(
                     sender = ChatSender.TUTOR,
                     text = response.replyText,
-                    targetControl = response.targetControl ?: currentStep.targetControlName,
-                    suggestedAction = response.suggestedAction ?: if (currentStep.expectedState != null) "AUTO_VERIFY" else null
+                    targetControl = response.targetControl ?: currentStep?.targetControlName,
+                    suggestedAction = response.suggestedAction ?: if (currentStep?.expectedState != null) "AUTO_VERIFY" else null
                 )
                 messages.add(tutorMsg)
 
                 // If auto-highlight requested or target found, automatically illuminate glow
                 if (autoHighlight || tutorMsg.targetControl != null) {
-                    val targetName = tutorMsg.targetControl ?: currentStep.targetControlName
+                    val targetName = tutorMsg.targetControl ?: currentStep?.targetControlName
                     if (!targetName.isNullOrBlank()) {
                         controller.resolveTargetForName(targetName)
                         overlayManager?.showOverlay()
@@ -243,13 +280,17 @@ fun ChatbotPanel(
                                     ChatMessage(
                                         sender = ChatSender.TUTOR,
                                         text = "🔍 State Diagnosis: ${diag.primaryMismatch.explanation}\n\n💡 Corrective Action: ${diag.primaryMismatch.suggestedAction.description}",
-                                        targetControl = currentStep.targetControlName,
+                                        targetControl = currentStep?.targetControlName,
                                         suggestedAction = "AUTO_VERIFY"
                                     )
                                 )
                                 listState.animateScrollToItem((messages.size - 1).coerceAtLeast(0))
                             } else {
-                                val stuckPrompt = "I'm stuck on Step ${currentStep.stepNumber}: '${currentStep.title}'. How do I locate '${currentStep.targetControlName ?: "the target tool"}' in Blender?"
+                                val stuckPrompt = if (currentStep != null) {
+                                    "I'm stuck on Step ${currentStep.stepNumber}: '${currentStep.title}'. How do I locate '${currentStep.targetControlName ?: "the target tool"}' in Blender?"
+                                } else {
+                                    "I'm stuck and need help getting started in Blender."
+                                }
                                 sendUserQuery(
                                     query = stuckPrompt,
                                     autoHighlight = true
@@ -261,7 +302,7 @@ fun ChatbotPanel(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = "🆘 I'm Stuck on this Step",
+                    text = "🆘 I'm Stuck",
                     color = Color.White,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold
@@ -276,11 +317,13 @@ fun ChatbotPanel(
                         coroutineScope.launch {
                             val res = controller.resolveDynamicTarget()
                             overlayManager?.showOverlay()
+                            val targetDesc = res.candidateName ?: currentStep?.targetControlName ?: "Screen Area"
+                            val stepInfo = if (currentStep != null) "Step ${currentStep.stepNumber} ('${currentStep.title}')" else "Active View"
                             messages.add(
                                 ChatMessage(
                                     sender = ChatSender.TUTOR,
-                                    text = "✨ Target illuminated for Step ${currentStep.stepNumber} ('${currentStep.title}'): ${res.candidateName ?: currentStep.targetControlName ?: "Screen Area"}.",
-                                    targetControl = res.candidateName ?: currentStep.targetControlName
+                                    text = "✨ Target illuminated for $stepInfo: $targetDesc.",
+                                    targetControl = res.candidateName ?: currentStep?.targetControlName
                                 )
                             )
                             listState.animateScrollToItem((messages.size - 1).coerceAtLeast(0))
@@ -297,16 +340,14 @@ fun ChatbotPanel(
                 )
             }
 
-            if (currentStep.expectedState != null) {
+            if (currentStep?.expectedState != null) {
                 Box(
                     modifier = Modifier
                         .weight(1.1f)
                         .background(Color(0xFF065F46), RoundedCornerShape(6.dp))
                         .clickable {
-                            val exp = currentStep.expectedState
-                            if (exp != null) {
-                                onAutoVerifyAction?.invoke(exp)
-                            }
+                            val exp = currentStep?.expectedState
+                            exp?.let { onAutoVerifyAction?.invoke(it) }
                         }
                         .padding(horizontal = 8.dp, vertical = 6.dp),
                     contentAlignment = Alignment.Center
@@ -384,13 +425,13 @@ fun ChatbotPanel(
                                 }
                             }
 
-                            if (msg.suggestedAction == "AUTO_VERIFY" || currentStep.expectedState != null) {
+                            if (msg.suggestedAction == "AUTO_VERIFY" || currentStep?.expectedState != null) {
                                 Box(
                                     modifier = Modifier
                                         .background(Color(0xFF064E3B), RoundedCornerShape(4.dp))
                                         .border(1.dp, Color(0xFF34D399), RoundedCornerShape(4.dp))
                                         .clickable {
-                                            val exp = currentStep.expectedState
+                                            val exp = currentStep?.expectedState
                                             if (exp != null) {
                                                 onAutoVerifyAction?.invoke(exp)
                                             }
@@ -469,6 +510,14 @@ fun ChatbotPanel(
                     cursorColor = Color(0xFFA78BFA)
                 ),
                 singleLine = true
+            )
+
+            TutorButton(
+                text = "Goal",
+                onClick = {
+                    sendUserQuery("goal: $inputText")
+                },
+                enabled = inputText.isNotBlank() && !isThinking
             )
 
             TutorButton(

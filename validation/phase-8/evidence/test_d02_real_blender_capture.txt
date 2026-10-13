@@ -1,0 +1,7 @@
+=== TEST D02: Real Screen Capture Result ===
+Status: PASS
+Captured PNG File: C:\Users\HP\AppData\Local\Temp\AIVT_BlenderCapture_b0d1c09e88e54e85a12f938a9408be07_12272189915170751132.png
+File Size: 3130 bytes
+Image Dimensions: 1366 × 768 px
+Blender Window Rect: java.awt.Rectangle[x=-8,y=-8,width=1382,height=784]
+Evidence Saved To: D:\AIVisualTutor\AIVisualTutor-main\composeApp\validation\phase-8\evidence\test_d02_real_blender_capture.png

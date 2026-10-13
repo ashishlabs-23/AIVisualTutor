@@ -1,0 +1,5 @@
+=== Test P9-05: Cancel Screenshot ===
+Status: PASS
+Workflow Stage: CANCELLED
+File Cleaned Up: true
+Lesson Intact: Step=0 ('Ensure Object Mode')

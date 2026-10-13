@@ -27,8 +27,13 @@ import pedagogy.LearningTask
  */
 class TutorController(
     val pedagogicalEngine: AdaptivePedagogicalEngine = AdaptivePedagogicalEngine(),
-    val targetPositioningService: DynamicTargetPositioningService = DynamicTargetPositioningService()
+    val targetPositioningService: DynamicTargetPositioningService = DynamicTargetPositioningService(),
+    val goalPlanner: UserGoalPlanner = UserGoalPlanner(),
+    loadMockTutorialByDefault: Boolean = false,
+    screenshotHelpCoordinatorFactory: ((TutorController) -> ScreenshotHelpCoordinator)? = null
 ) {
+    val screenshotHelpCoordinator: ScreenshotHelpCoordinator =
+        screenshotHelpCoordinatorFactory?.invoke(this) ?: ScreenshotHelpCoordinator(this)
 
     var sessionContext by mutableStateOf(SessionContext())
         private set
@@ -38,13 +43,147 @@ class TutorController(
     var state by mutableStateOf(TutorState())
         private set
 
+    var activePlan by mutableStateOf<UserGoalPlan?>(null)
+        private set
+
+    var hasLoadedMockTutorial by mutableStateOf(loadMockTutorialByDefault)
+        private set
+
+    val currentGeneratedPlan: UserGoalPlan?
+        get() = activePlan
+
     init {
-        // Initialize adaptive instruction for the first step
-        val firstStep = stepsForCurrentApp().first()
+        if (loadMockTutorialByDefault) {
+            val firstStep = stepsForCurrentApp().firstOrNull()
+            if (firstStep != null) {
+                val firstTask = firstStep.toLearningTask()
+                val initialInstruction = pedagogicalEngine.getInstruction(firstTask)
+
+                state = state.copy(
+                    guidanceStage = initialInstruction.stage,
+                    adaptiveInstruction = initialInstruction,
+                    currentHighlight = initialInstruction.targetRegion ?: firstStep.targetRegion,
+                    adaptationReason = pedagogicalEngine.state.adaptationReason,
+                    competenceEstimate = pedagogicalEngine.state.competenceEstimate
+                )
+            }
+        } else {
+            state = state.copy(
+                guidanceStage = GuidanceStage.STAGE_1_EXACT_GUIDANCE,
+                adaptiveInstruction = null,
+                currentHighlight = null,
+                adaptationReason = null
+            )
+        }
+    }
+
+    fun stepsForCurrentApp(): List<TutorStep> {
+        val plan = activePlan
+        return if (plan != null && state.selectedApplication == plan.application) {
+            plan.toTutorSteps()
+        } else if (hasLoadedMockTutorial) {
+            MockTutorData.stepsFor(state.selectedApplication)
+        } else {
+            emptyList()
+        }
+    }
+
+    /**
+     * Accepts a user goal string, invokes [UserGoalPlanner] to generate a structured
+     * plan, replaces current tutorial steps with generated steps, and activates the first step.
+     * Returns null if [goalText] is blank without generating a plan.
+     */
+    fun startUserGoal(goalText: String): UserGoalPlan? {
+        val trimmed = goalText.trim()
+        if (trimmed.isBlank()) {
+            return null
+        }
+        val plan = goalPlanner.planGoal(trimmed, ApplicationType.BLENDER)
+        activePlan = plan
+
+        if (state.selectedApplication != plan.application) {
+            state = state.copy(selectedApplication = plan.application)
+        }
+
+        val steps = plan.toTutorSteps()
+        if (steps.isNotEmpty()) {
+            val firstStep = steps.first()
+            val firstTask = firstStep.toLearningTask()
+            val initialInstruction = pedagogicalEngine.onTaskSwitched(
+                newTask = firstTask,
+                visualContext = sessionContext.lastVisualContext
+            )
+
+            state = state.copy(
+                currentStepIndex = 0,
+                guidanceStage = initialInstruction.stage,
+                adaptiveInstruction = initialInstruction,
+                currentHighlight = initialInstruction.targetRegion ?: firstStep.targetRegion,
+                adaptationReason = pedagogicalEngine.state.adaptationReason,
+                competenceEstimate = pedagogicalEngine.state.competenceEstimate
+            )
+        }
+
+        return plan
+    }
+
+    /**
+     * Clears any active generated goal plan and restores the empty goal-entry state
+     * (or restores mock tutorial if demo mode was loaded).
+     */
+    fun clearUserGoal() {
+        if (activePlan == null) return
+        activePlan = null
+        screenshotHelpCoordinator.resetSync()
+
+        if (hasLoadedMockTutorial) {
+            val steps = MockTutorData.stepsFor(state.selectedApplication)
+            val firstStep = steps.firstOrNull()
+            if (firstStep != null) {
+                val firstTask = firstStep.toLearningTask()
+                val initialInstruction = pedagogicalEngine.onTaskSwitched(
+                    newTask = firstTask,
+                    visualContext = sessionContext.lastVisualContext
+                )
+
+                state = state.copy(
+                    currentStepIndex = 0,
+                    guidanceStage = initialInstruction.stage,
+                    adaptiveInstruction = initialInstruction,
+                    currentHighlight = initialInstruction.targetRegion ?: firstStep.targetRegion,
+                    adaptationReason = pedagogicalEngine.state.adaptationReason,
+                    competenceEstimate = pedagogicalEngine.state.competenceEstimate
+                )
+            }
+        } else {
+            state = state.copy(
+                currentStepIndex = 0,
+                guidanceStage = GuidanceStage.STAGE_1_EXACT_GUIDANCE,
+                adaptiveInstruction = null,
+                currentHighlight = null,
+                adaptationReason = null
+            )
+        }
+    }
+
+    /**
+     * Loads predefined mock tutorial steps for demo/test workflows.
+     * Not used as the default production experience on app startup.
+     */
+    fun loadMockTutorial(application: ApplicationType = state.selectedApplication) {
+        hasLoadedMockTutorial = true
+        activePlan = null
+        val steps = MockTutorData.stepsFor(application)
+        val firstStep = steps.first()
         val firstTask = firstStep.toLearningTask()
-        val initialInstruction = pedagogicalEngine.getInstruction(firstTask)
+        val initialInstruction = pedagogicalEngine.onTaskSwitched(
+            newTask = firstTask,
+            visualContext = sessionContext.lastVisualContext
+        )
 
         state = state.copy(
+            selectedApplication = application,
+            currentStepIndex = 0,
             guidanceStage = initialInstruction.stage,
             adaptiveInstruction = initialInstruction,
             currentHighlight = initialInstruction.targetRegion ?: firstStep.targetRegion,
@@ -53,17 +192,14 @@ class TutorController(
         )
     }
 
-    fun stepsForCurrentApp(): List<TutorStep> =
-        MockTutorData.stepsFor(state.selectedApplication)
-
-    /** The step currently being shown to the user. */
-    val currentStep: TutorStep
-        get() = stepsForCurrentApp()[state.currentStepIndex]
+    /** The step currently being shown to the user, or null if no tutorial is active. */
+    val currentStep: TutorStep?
+        get() = stepsForCurrentApp().getOrNull(state.currentStepIndex)
 
     /** Natural-language instruction for the active step, grounded in pedagogical guidance. */
     val currentTargetDescription: String?
         get() = state.adaptiveInstruction?.instructionText
-            ?: targetDescriptionForStep(currentStep)
+            ?: currentStep?.let { targetDescriptionForStep(it) }
 
     fun targetDescriptionForStep(step: TutorStep): String? = step.instruction.takeIf(String::isNotBlank)
 
@@ -71,8 +207,8 @@ class TutorController(
         sessionContext = sessionContext.copy(lastVisualContext = visualContext)
         mutableEvents.tryEmit(TutorEvent.VisualContextCreated(visualContext))
 
-        // Ground the current instruction in the newly observed visual context
-        val currentTask = currentStep.toLearningTask()
+        val step = currentStep ?: return
+        val currentTask = step.toLearningTask()
         val groundedInstruction = pedagogicalEngine.getInstruction(
             task = currentTask,
             visualContext = visualContext
@@ -91,8 +227,15 @@ class TutorController(
     }
 
     fun diagnoseCurrentStep(): context.StateMismatchReport {
+        val step = currentStep ?: return context.StateMismatchReport(
+            hasMismatch = false,
+            mismatches = emptyList(),
+            primaryMismatch = null,
+            recoveryActions = emptyList(),
+            summary = "No active tutorial step to diagnose."
+        )
         return diagnosticEngine.diagnose(
-            expected = currentStep.expectedState,
+            expected = step.expectedState,
             observed = sessionContext.lastObservedState,
             targetApplicationName = state.selectedApplication.displayName
         )
@@ -111,19 +254,40 @@ class TutorController(
         )
 
         // If the verified task corresponds to the current step, update UI adaptive instruction
-        val isCurrentStepTask = resolvedTask.taskId == currentStep.taskId
+        val step = currentStep
+        val isCurrentStepTask = step != null && resolvedTask.taskId == step.taskId
+        val isCurrentStepOperation = step != null && step.expectedState != null && step.expectedState?.operation == result.operation
+        val isVerifiedCurrentStep = isCurrentStepTask || isCurrentStepOperation
+
+        var customRationale = decision.rationale
+        if (result.status == context.VerificationStatus.FAILURE && isVerifiedCurrentStep) {
+            val diag = diagnoseCurrentStep()
+            if (diag.hasMismatch && diag.primaryMismatch != null) {
+                customRationale = "Mismatch: ${diag.primaryMismatch.explanation}. Suggestion: ${diag.primaryMismatch.suggestedAction.description}"
+            }
+        } else if (result.status == context.VerificationStatus.UNCERTAIN && isVerifiedCurrentStep) {
+            customRationale = "Verification uncertain: ${result.explanation}. Step not confirmed; please check Blender."
+        }
+
         state = state.copy(
             guidanceStage = decision.newStage,
             adaptiveInstruction = if (isCurrentStepTask) decision.instruction else state.adaptiveInstruction,
             lastPedagogicalOutcome = decision.outcome,
-            adaptationReason = decision.rationale,
+            adaptationReason = customRationale,
             competenceEstimate = decision.competenceEstimate,
-            currentHighlight = if (isCurrentStepTask) (decision.instruction.targetRegion ?: currentStep.targetRegion) else state.currentHighlight
+            currentHighlight = if (isCurrentStepTask) (decision.instruction.targetRegion ?: step.targetRegion) else state.currentHighlight
         )
 
         mutableEvents.tryEmit(TutorEvent.PedagogicalStateChanged(decision))
         if (decision.stageChanged) {
             mutableEvents.tryEmit(TutorEvent.GuidanceStageChanged(decision.newStage))
+        }
+
+        // Closed-loop step progression: advance only on SUCCESS of the active step
+        if (result.status == context.VerificationStatus.SUCCESS && isVerifiedCurrentStep) {
+            if (state.currentStepIndex < stepsForCurrentApp().lastIndex) {
+                nextStep()
+            }
         }
     }
 
@@ -131,7 +295,8 @@ class TutorController(
      * Submits learner's answer to the reflection question for the active step.
      */
     fun submitConceptualAnswer(answer: String) {
-        val currentTask = currentStep.toLearningTask()
+        val step = currentStep ?: return
+        val currentTask = step.toLearningTask()
         val decision = pedagogicalEngine.evaluateConceptualAnswer(
             task = currentTask,
             learnerAnswer = answer,
@@ -143,7 +308,7 @@ class TutorController(
             lastPedagogicalOutcome = decision.outcome,
             adaptationReason = decision.rationale,
             competenceEstimate = decision.competenceEstimate,
-            currentHighlight = decision.instruction.targetRegion ?: currentStep.targetRegion
+            currentHighlight = decision.instruction.targetRegion ?: step.targetRegion
         )
         mutableEvents.tryEmit(TutorEvent.PedagogicalStateChanged(decision))
         if (decision.stageChanged) {
@@ -155,10 +320,18 @@ class TutorController(
         submitConceptualAnswer("I'm stuck")
     }
 
+    suspend fun requestScreenshotHelp(
+        excludeOverlayAction: (suspend () -> Unit)? = null,
+        restoreOverlayAction: (suspend () -> Unit)? = null
+    ): Boolean {
+        return screenshotHelpCoordinator.startCapture(excludeOverlayAction, restoreOverlayAction)
+    }
+
     private fun resolveTaskForVerification(result: VerificationResult, expected: context.ExpectedState?): LearningTask {
+        val step = currentStep
         // 1. If current step's expected state matches the result operation, use it
-        if (currentStep.expectedState != null && currentStep.expectedState?.operation == result.operation) {
-            return currentStep.toLearningTask()
+        if (step != null && step.expectedState != null && step.expectedState?.operation == result.operation) {
+            return step.toLearningTask()
         }
         // 2. If any step in current application matches the operation and target name, use it
         val matchingStep = stepsForCurrentApp().find {
@@ -186,29 +359,51 @@ class TutorController(
 
     fun selectApplication(application: ApplicationType) {
         if (application == state.selectedApplication) return
-        val steps = MockTutorData.stepsFor(application)
-        val firstStep = steps.first()
-        val firstTask = firstStep.toLearningTask()
+        if (activePlan != null && activePlan?.application != application) {
+            activePlan = null
+        }
+        val steps = if (activePlan != null && activePlan?.application == application) {
+            activePlan!!.toTutorSteps()
+        } else if (hasLoadedMockTutorial) {
+            MockTutorData.stepsFor(application)
+        } else {
+            emptyList()
+        }
 
-        val adaptiveInstruction = pedagogicalEngine.onTaskSwitched(
-            newTask = firstTask,
-            visualContext = sessionContext.lastVisualContext
-        )
+        if (steps.isNotEmpty()) {
+            val firstStep = steps.first()
+            val firstTask = firstStep.toLearningTask()
 
-        state = state.copy(
-            selectedApplication = application,
-            currentStepIndex = 0,
-            guidanceStage = adaptiveInstruction.stage,
-            adaptiveInstruction = adaptiveInstruction,
-            currentHighlight = adaptiveInstruction.targetRegion ?: firstStep.targetRegion,
-            adaptationReason = pedagogicalEngine.state.adaptationReason,
-            competenceEstimate = pedagogicalEngine.state.competenceEstimate
-        )
+            val adaptiveInstruction = pedagogicalEngine.onTaskSwitched(
+                newTask = firstTask,
+                visualContext = sessionContext.lastVisualContext
+            )
+
+            state = state.copy(
+                selectedApplication = application,
+                currentStepIndex = 0,
+                guidanceStage = adaptiveInstruction.stage,
+                adaptiveInstruction = adaptiveInstruction,
+                currentHighlight = adaptiveInstruction.targetRegion ?: firstStep.targetRegion,
+                adaptationReason = pedagogicalEngine.state.adaptationReason,
+                competenceEstimate = pedagogicalEngine.state.competenceEstimate
+            )
+        } else {
+            state = state.copy(
+                selectedApplication = application,
+                currentStepIndex = 0,
+                guidanceStage = GuidanceStage.STAGE_1_EXACT_GUIDANCE,
+                adaptiveInstruction = null,
+                currentHighlight = null,
+                adaptationReason = null
+            )
+        }
         mutableEvents.tryEmit(TutorEvent.ApplicationChanged(application))
     }
 
     fun nextStep() {
         val steps = stepsForCurrentApp()
+        if (steps.isEmpty()) return
         val fromIndex = state.currentStepIndex
         val nextIndex = (fromIndex + 1).coerceAtMost(steps.lastIndex)
         if (fromIndex == nextIndex) return
@@ -233,6 +428,7 @@ class TutorController(
 
     fun previousStep() {
         val steps = stepsForCurrentApp()
+        if (steps.isEmpty()) return
         val fromIndex = state.currentStepIndex
         val prevIndex = (fromIndex - 1).coerceAtLeast(0)
         if (fromIndex == prevIndex) return
@@ -280,8 +476,15 @@ class TutorController(
         appContext: ApplicationContext? = null,
         screenshot: BufferedImage? = null
     ): TargetPositionResult {
+        val step = currentStep ?: return TargetPositionResult(
+            region = null,
+            source = context.TargetLocalizationSource.ABSTAIN,
+            confidence = 0.0,
+            isSemanticallyVerified = false,
+            diagnostic = "No active tutorial step"
+        )
         val result = targetPositioningService.resolveTarget(
-            step = currentStep,
+            step = step,
             appContext = appContext,
             screenshot = screenshot
         )
@@ -307,7 +510,17 @@ class TutorController(
             it.targetControlName.equals(targetName, ignoreCase = true) ||
             it.title.contains(targetName, ignoreCase = true) ||
             it.instruction.contains(targetName, ignoreCase = true)
-        } ?: currentStep.copy(targetControlName = targetName)
+        } ?: currentStep?.copy(targetControlName = targetName)
+        ?: TutorStep(
+            id = 999,
+            title = targetName,
+            instruction = "Locate $targetName",
+            description = "Dynamically resolved target for $targetName",
+            targetControlName = targetName,
+            stepNumber = 1,
+            totalSteps = 1,
+            targetRegion = HighlightRegion(100f, 100f, 120f, 40f)
+        )
 
         val result = targetPositioningService.resolveTarget(
             step = matchingStep,

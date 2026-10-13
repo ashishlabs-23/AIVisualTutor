@@ -21,3 +21,5 @@ wgc-bridge/WgcSharp/**/obj/
 docs/calibration-runs/
 __pycache__/
 *.pyc
+**/test_report/
+composeApp/validation/

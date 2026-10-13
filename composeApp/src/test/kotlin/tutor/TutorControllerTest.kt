@@ -19,31 +19,40 @@ class TutorControllerTest {
     }
 
     @Test
-    fun currentTargetDescriptionTracksCurrentStepAndRemainsAbsentForBlankInstruction() {
+    fun startsInEmptyGoalEntryStateWithNoDefaultStepOrTutorial() {
         val controller = TutorController()
-        assertEquals(controller.currentStep.instruction, controller.currentTargetDescription)
+        assertEquals(0, controller.stepsForCurrentApp().size)
+        assertEquals(null, controller.currentStep)
+        assertEquals(null, controller.activePlan)
+        assertEquals(null, controller.state.currentHighlight)
+        assertFalse(controller.hasLoadedMockTutorial)
+    }
+
+    @Test
+    fun currentTargetDescriptionTracksCurrentStepAndRemainsAbsentForBlankInstruction() {
+        val controller = TutorController(loadMockTutorialByDefault = true)
+        assertEquals(controller.currentStep?.instruction, controller.currentTargetDescription)
         controller.nextStep()
-        assertEquals(controller.currentStep.instruction, controller.currentTargetDescription)
+        assertEquals(controller.currentStep?.instruction, controller.currentTargetDescription)
         assertEquals(null, controller.targetDescriptionForStep(TutorStep(
             id = 1, title = "No target", instruction = " ", description = "",
             stepNumber = 1, totalSteps = 1
         )))
     }
 
-
     @Test
-    fun startsAtFirstBlenderStepWithItsHighlight() {
-        val controller = TutorController()
+    fun startsAtFirstBlenderStepWithItsHighlightWhenMockTutorialLoaded() {
+        val controller = TutorController(loadMockTutorialByDefault = true)
 
         assertEquals(ApplicationType.BLENDER, controller.state.selectedApplication)
         assertEquals(0, controller.state.currentStepIndex)
-        assertEquals("Open the Add menu.", controller.currentStep.instruction)
+        assertEquals("Open the Add menu.", controller.currentStep?.instruction)
         assertNotNull(controller.state.currentHighlight)
     }
 
     @Test
     fun selectingEachApplicationResetsToItsFirstStepAndHighlight() {
-        val controller = TutorController()
+        val controller = TutorController(loadMockTutorialByDefault = true)
         controller.nextStep()
 
         val expectedFirstInstructions = mapOf(
@@ -57,25 +66,25 @@ class TutorControllerTest {
 
             assertEquals(application, controller.state.selectedApplication)
             assertEquals(0, controller.state.currentStepIndex)
-            assertEquals(instruction, controller.currentStep.instruction)
-            assertEquals(controller.currentStep.targetRegion, controller.state.currentHighlight)
+            assertEquals(instruction, controller.currentStep?.instruction)
+            assertEquals(controller.currentStep?.targetRegion, controller.state.currentHighlight)
         }
     }
 
     @Test
     fun nextAndPreviousStayWithinWorkflowAndUpdateHighlight() {
-        val controller = TutorController()
+        val controller = TutorController(loadMockTutorialByDefault = true)
 
         controller.previousStep()
         assertEquals(0, controller.state.currentStepIndex)
 
         repeat(10) { controller.nextStep() }
         assertEquals(4, controller.state.currentStepIndex)
-        assertEquals(controller.currentStep.targetRegion, controller.state.currentHighlight)
+        assertEquals(controller.currentStep?.targetRegion, controller.state.currentHighlight)
 
         repeat(10) { controller.previousStep() }
         assertEquals(0, controller.state.currentStepIndex)
-        assertEquals(controller.currentStep.targetRegion, controller.state.currentHighlight)
+        assertEquals(controller.currentStep?.targetRegion, controller.state.currentHighlight)
     }
 
     @Test

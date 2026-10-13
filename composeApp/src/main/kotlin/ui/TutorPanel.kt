@@ -17,9 +17,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.window.WindowDraggableArea
-import androidx.compose.material.Divider
 import androidx.compose.material.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -29,7 +29,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -38,16 +41,12 @@ import context.ExpectedState
 import kotlinx.coroutines.launch
 import models.ApplicationType
 import overlay.OverlayManager
+import pedagogy.PedagogicalOutcome
 import tutor.TutorController
 
 /**
- * Modern AI Visual Tutor unified panel matching the desktop design specification:
- * - Header with application name, tutorial title, beginner badge, and step progress bar
- * - Step visual preview card with title, description, and [Previous] / [Next] navigation
- * - Verification status card: "Waiting for your action... The tutor will automatically verify"
- * - Need Help? section: [I'm Stuck on this Step] and [Give me a Hint]
- * - Integrated [Chat] / [Explanation] tabs
- * - Current Progress checklist with active indicators
+ * Transparent floating frosted-glass HUD panel designed to overlay directly
+ * on top of Blender, matching the AI Visual Tutor design mockup.
  */
 @Composable
 fun WindowScope.TutorPanel(
@@ -62,629 +61,777 @@ fun WindowScope.TutorPanel(
     blenderVerificationFeedback: String? = null,
     onCaptureBlenderBaseline: (ExpectedState) -> Unit = {},
     onVerifyBlenderAction: (ExpectedState) -> Unit = {},
-    onAutoVerifyBlenderAction: (ExpectedState) -> Unit = {}
+    onAutoVerifyBlenderAction: (ExpectedState) -> Unit = {},
+    onRequestScreenshotHelp: (() -> Unit)? = null
 ) {
     val coroutineScope = rememberCoroutineScope()
     val state = controller.state
+    val allSteps = controller.stepsForCurrentApp()
     val step = controller.currentStep
+    val isTutorialActive = (controller.activePlan != null || controller.hasLoadedMockTutorial) && allSteps.isNotEmpty() && step != null
     val scrollState = rememberScrollState()
-    var activeTab by remember { mutableStateOf(0) } // 0: Chat, 1: Explanation
-    var showAdvancedTools by remember { mutableStateOf(false) }
 
-    Column(
+    var userGoalInput by remember { mutableStateOf("") }
+    var goalValidationError by remember { mutableStateOf<String?>(null) }
+    var inputQuery by remember { mutableStateOf("") }
+    var showFullChat by remember { mutableStateOf(false) }
+
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(color = Color(0xFF131722), shape = RoundedCornerShape(12.dp))
-            .border(1.dp, Color(0xFF232936), RoundedCornerShape(12.dp))
+            .padding(2.dp)
+            .background(
+                color = Color(0xEB0F1422), // Frosted dark glass with alpha
+                shape = RoundedCornerShape(24.dp)
+            )
+            .border(
+                width = 1.dp,
+                brush = Brush.linearGradient(
+                    listOf(
+                        Color(0x668B5CF6),
+                        Color(0x3338BDF8),
+                        Color(0x22FFFFFF),
+                        Color(0x228B5CF6)
+                    )
+                ),
+                shape = RoundedCornerShape(24.dp)
+            )
             .padding(14.dp)
     ) {
-        // Draggable Title Bar
-        WindowDraggableArea {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(text = "🎓", fontSize = 16.sp)
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "AI Visual Tutor",
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp
-                    )
-                }
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "—",
-                        color = Color(0xFFAAB0BD),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.clickable { /* minimize */ }
-                    )
-                    Text(
-                        text = "▢",
-                        color = Color(0xFFAAB0BD),
-                        fontSize = 12.sp,
-                        modifier = Modifier.clickable { /* maximize */ }
-                    )
-                    Text(
-                        text = "✕",
-                        color = Color(0xFFAAB0BD),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.clickable { onClose() }
-                    )
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(10.dp))
-
-        // Main scrollable area
         Column(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
-                .verticalScroll(scrollState)
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // Tutorial Header (Application / Title / Badge)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(34.dp)
-                            .background(Color(0xFF1E2638), RoundedCornerShape(8.dp)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(text = "🧭", fontSize = 16.sp)
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Column {
-                        Text(
-                            text = when (state.selectedApplication) {
-                                ApplicationType.BLENDER -> "Blender Tutorial"
-                                ApplicationType.PDF -> "PDF Manual Tutorial"
-                                ApplicationType.EXCEL -> "Excel Tutorial"
-                            },
-                            color = Color(0xFFAAB0BD),
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Text(
-                            text = when (state.selectedApplication) {
-                                ApplicationType.BLENDER -> "Create a Sphere"
-                                ApplicationType.PDF -> "Document Analysis"
-                                ApplicationType.EXCEL -> "Spreadsheet Entry"
-                            },
-                            color = Color.White,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-
-                // Beginner Badge
-                Box(
-                    modifier = Modifier
-                        .background(Color(0xFF064E3B), RoundedCornerShape(12.dp))
-                        .border(1.dp, Color(0xFF10B981), RoundedCornerShape(12.dp))
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
+            // Header Bar (Draggable across the top)
+            WindowDraggableArea {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Top
                 ) {
-                    Text(
-                        text = "🌱 Beginner",
-                        color = Color(0xFF34D399),
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Step counter & Segmented Progress Bar
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Step ${step.stepNumber} of ${step.totalSteps}",
-                    color = Color(0xFF34D399),
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium
-                )
-            }
-
-            Spacer(modifier = Modifier.height(4.dp))
-
-            // 5-segment Progress Bar
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                val total = step.totalSteps.coerceAtLeast(1)
-                for (i in 1..total) {
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(4.dp)
-                            .background(
-                                color = if (i <= step.stepNumber) Color(0xFF10B981) else Color(0xFF2A3142),
-                                shape = RoundedCornerShape(2.dp)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .background(
+                                    Brush.linearGradient(listOf(Color(0xFF8B5CF6), Color(0xFF6366F1))),
+                                    RoundedCornerShape(10.dp)
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(text = "✨", fontSize = 16.sp)
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "AI Visual Tutor",
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 17.sp
                             )
-                    )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .background(Color(0xFF22C55E), CircleShape)
+                                )
+                                Spacer(modifier = Modifier.width(5.dp))
+                                Text(
+                                    text = if (state.selectedApplication == ApplicationType.BLENDER) {
+                                        "Blender state connected"
+                                    } else {
+                                        "${state.selectedApplication.displayName} connected"
+                                    },
+                                    color = Color(0xFF94A3B8),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "—",
+                            color = Color(0xFF94A3B8),
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier
+                                .clickable { onClose() }
+                                .padding(4.dp)
+                        )
+                        Text(
+                            text = "✕",
+                            color = Color(0xFF94A3B8),
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier
+                                .clickable { onClose() }
+                                .padding(4.dp)
+                        )
+                    }
                 }
             }
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Action Preview Card
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(Color(0xFF181C26), RoundedCornerShape(10.dp))
-                    .border(1.dp, Color(0xFF2B3345), RoundedCornerShape(10.dp))
-                    .padding(10.dp)
-            ) {
-                // Visual Mock Preview Box
-                Box(
+            if (!isTutorialActive) {
+                // ==========================================
+                // INITIAL EMPTY GOAL-ENTRY HUD STATE
+                // ==========================================
+                Column(
                     modifier = Modifier
+                        .weight(1f)
                         .fillMaxWidth()
-                        .height(110.dp)
-                        .background(Color(0xFF0F1117), RoundedCornerShape(8.dp))
-                        .border(1.dp, Color(0xFF262C3A), RoundedCornerShape(8.dp))
-                        .padding(8.dp)
+                        .verticalScroll(scrollState),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    // Visual Menu representation matching screenshot
-                    Row(modifier = Modifier.fillMaxSize()) {
-                        // Left sub-menu
-                        Column(
+                    // Introduction Card
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color(0x29181D2D), RoundedCornerShape(16.dp))
+                            .border(1.dp, Color(0x2B475569), RoundedCornerShape(16.dp))
+                            .padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = "Goal-Driven 3D Tutoring",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp
+                        )
+                        Text(
+                            text = "Enter any 3D task or object. AI Visual Tutor will generate a structured plan, illuminate tools on screen, and verify your actions closed-loop in Blender.",
+                            color = Color(0xFFCBD5E1),
+                            fontSize = 12.sp,
+                            lineHeight = 16.sp
+                        )
+                    }
+
+                    // Goal Input Card
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color(0x38191E2E), RoundedCornerShape(16.dp))
+                            .border(1.dp, Color(0x406366F1), RoundedCornerShape(16.dp))
+                            .padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            text = "WHAT DO YOU WANT TO BUILD?",
+                            color = Color(0xFFC084FC),
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp
+                        )
+
+                        BasicTextField(
+                            value = userGoalInput,
+                            onValueChange = {
+                                userGoalInput = it
+                                if (goalValidationError != null) goalValidationError = null
+                            },
+                            singleLine = true,
+                            textStyle = TextStyle(color = Color.White, fontSize = 13.sp),
+                            cursorBrush = SolidColor(Color(0xFFA78BFA)),
                             modifier = Modifier
-                                .width(75.dp)
-                                .background(Color(0xFF1A1D24), RoundedCornerShape(4.dp))
-                                .padding(4.dp)
-                        ) {
-                            Text("Add", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                            Spacer(modifier = Modifier.height(3.dp))
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(Color(0xFF2563EB), RoundedCornerShape(2.dp))
-                                    .padding(2.dp)
-                            ) {
-                                Text("▶ Mesh", color = Color.White, fontSize = 8.sp)
+                                .fillMaxWidth()
+                                .background(Color(0x4D0F1422), RoundedCornerShape(10.dp))
+                                .border(1.dp, Color(0x3364748B), RoundedCornerShape(10.dp))
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            decorationBox = { innerTextField ->
+                                if (userGoalInput.isEmpty()) {
+                                    Text(
+                                        text = "What do you want to build in Blender?",
+                                        color = Color(0xFF64748B),
+                                        fontSize = 13.sp
+                                    )
+                                }
+                                innerTextField()
                             }
-                            Text("  Curve", color = Color(0xFFAAB0BD), fontSize = 8.sp)
-                            Text("  Surface", color = Color(0xFFAAB0BD), fontSize = 8.sp)
+                        )
+
+                        if (goalValidationError != null) {
+                            Text(
+                                text = goalValidationError!!,
+                                color = Color(0xFFF87171),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium
+                            )
                         }
 
-                        Spacer(modifier = Modifier.width(6.dp))
-
-                        // Submenu with UV Sphere highlighted
-                        Column(
+                        // Prominent "Start Tutoring" Action Button
+                        Box(
                             modifier = Modifier
-                                .width(95.dp)
-                                .background(Color(0xFF1A1D24), RoundedCornerShape(4.dp))
-                                .padding(4.dp)
+                                .fillMaxWidth()
+                                .background(
+                                    Brush.linearGradient(listOf(Color(0xFF8B5CF6), Color(0xFF6366F1))),
+                                    RoundedCornerShape(12.dp)
+                                )
+                                .clickable {
+                                    val trimmed = userGoalInput.trim()
+                                    if (trimmed.isEmpty()) {
+                                        goalValidationError = "Please enter what you want to build before starting."
+                                    } else {
+                                        goalValidationError = null
+                                        val plan = controller.startUserGoal(trimmed)
+                                        if (plan != null) {
+                                            overlayManager.showOverlay()
+                                        }
+                                    }
+                                }
+                                .padding(vertical = 11.dp),
+                            contentAlignment = Alignment.Center
                         ) {
-                            Text("Plane", color = Color(0xFFAAB0BD), fontSize = 8.sp)
-                            Text("Cube", color = Color(0xFFAAB0BD), fontSize = 8.sp)
-                            Text("Circle", color = Color(0xFFAAB0BD), fontSize = 8.sp)
-                            Spacer(modifier = Modifier.height(1.dp))
-                            // Highlighted UV Sphere item
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(Color(0xFF064E3B), RoundedCornerShape(3.dp))
-                                    .border(1.5.dp, Color(0xFF10B981), RoundedCornerShape(3.dp))
-                                    .padding(2.dp)
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text("🌐 ", fontSize = 8.sp)
+                            Text(
+                                text = "Start Tutoring",
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp
+                            )
+                        }
+                    }
+
+                    // Quick Suggestion Chips
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = "Suggestions:",
+                            color = Color(0xFF94A3B8),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        val suggestions = listOf(
+                            "Create a UV sphere",
+                            "Make a cube and move it up",
+                            "Delete active object",
+                            "Switch to Edit Mode"
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            suggestions.take(2).forEach { s ->
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .background(Color(0x2E1E2436), RoundedCornerShape(8.dp))
+                                        .border(1.dp, Color(0x33475569), RoundedCornerShape(8.dp))
+                                        .clickable {
+                                            userGoalInput = s
+                                            goalValidationError = null
+                                        }
+                                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
                                     Text(
-                                        text = if (step.targetControlName != null) step.targetControlName!! else "UV Sphere",
-                                        color = Color.White,
-                                        fontSize = 8.sp,
-                                        fontWeight = FontWeight.Bold
+                                        text = s,
+                                        color = Color(0xFFCBD5E1),
+                                        fontSize = 10.sp,
+                                        maxLines = 1
                                     )
                                 }
                             }
-                            Text("Ico Sphere", color = Color(0xFFAAB0BD), fontSize = 8.sp)
-                            Text("Cylinder", color = Color(0xFFAAB0BD), fontSize = 8.sp)
                         }
-
-                        Spacer(modifier = Modifier.weight(1f))
-
-                        // Tooltip callout bubble
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.CenterVertically)
-                                .background(Color(0xFF065F46), RoundedCornerShape(6.dp))
-                                .border(1.dp, Color(0xFF34D399), RoundedCornerShape(6.dp))
-                                .padding(horizontal = 6.dp, vertical = 4.dp)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Text(
-                                text = "Click on\n${step.targetControlName ?: "UV Sphere"}",
-                                color = Color.White,
-                                fontSize = 8.sp,
-                                fontWeight = FontWeight.Bold
-                            )
+                            suggestions.drop(2).forEach { s ->
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .background(Color(0x2E1E2436), RoundedCornerShape(8.dp))
+                                        .border(1.dp, Color(0x33475569), RoundedCornerShape(8.dp))
+                                        .clickable {
+                                            userGoalInput = s
+                                            goalValidationError = null
+                                        }
+                                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = s,
+                                        color = Color(0xFFCBD5E1),
+                                        fontSize = 10.sp,
+                                        maxLines = 1
+                                    )
+                                }
+                            }
                         }
                     }
-                }
 
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // Step Title & Description
-                Text(
-                    text = step.title,
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = step.description,
-                    color = Color(0xFFCFD3DA),
-                    fontSize = 11.sp,
-                    lineHeight = 15.sp
-                )
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // Navigation row: [Previous] [Next]
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .background(
-                                if (state.currentStepIndex > 0) Color(0xFF262C3A) else Color(0xFF1C202B),
-                                RoundedCornerShape(6.dp)
-                            )
-                            .clickable(enabled = state.currentStepIndex > 0) {
-                                controller.previousStep()
-                            }
-                            .padding(horizontal = 14.dp, vertical = 6.dp)
+                    // Optional Demo / Test Data
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "← Previous",
-                            color = if (state.currentStepIndex > 0) Color.White else Color(0xFF6B7280),
+                            text = "Or load ",
+                            color = Color(0xFF64748B),
+                            fontSize = 11.sp
+                        )
+                        Text(
+                            text = "Demo Tutorial",
+                            color = Color(0xFFA78BFA),
                             fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier
+                                .clickable {
+                                    controller.loadMockTutorial()
+                                    overlayManager.showOverlay()
+                                }
+                                .padding(2.dp)
                         )
                     }
-
-                    Box(
-                        modifier = Modifier
-                            .background(
-                                if (state.currentStepIndex < step.totalSteps - 1) Color(0xFF2563EB) else Color(0xFF1C202B),
-                                RoundedCornerShape(6.dp)
-                            )
-                            .clickable(enabled = state.currentStepIndex < step.totalSteps - 1) {
-                                controller.nextStep()
-                            }
-                            .padding(horizontal = 14.dp, vertical = 6.dp)
-                    ) {
-                        Text(
-                            text = "Next →",
-                            color = if (state.currentStepIndex < step.totalSteps - 1) Color.White else Color(0xFF6B7280),
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // Action Verification Status Box
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(Color(0xFF042F2E), RoundedCornerShape(8.dp))
-                    .border(1.dp, Color(0xFF0D9488), RoundedCornerShape(8.dp))
-                    .clickable {
-                        val exp = step.expectedState
-                        if (exp != null) onAutoVerifyBlenderAction(exp)
-                    }
-                    .padding(10.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(24.dp)
-                            .background(Color(0xFF059669), CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("✔", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    }
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column {
-                        Text(
-                            text = "Waiting for your action...",
-                            color = Color(0xFF34D399),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "The tutor will automatically verify once action is completed in ${state.selectedApplication.displayName}.",
-                            color = Color(0xFFA7F3D0),
-                            fontSize = 10.sp
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Need Help? Section
-            Text(
-                text = "Need Help?",
-                color = Color(0xFFAAB0BD),
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Medium
-            )
-            Spacer(modifier = Modifier.height(6.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                // I'm Stuck on this Step
-                Box(
-                    modifier = Modifier
-                        .weight(1.2f)
-                        .background(Color(0xFF1E3A8A), RoundedCornerShape(6.dp))
-                        .clickable {
-                            coroutineScope.launch {
-                                controller.resolveDynamicTarget()
-                                overlayManager.showOverlay()
-                                val diag = controller.diagnoseCurrentStep()
-                                controller.requestStuckHelp()
-                            }
-                        }
-                        .padding(horizontal = 10.dp, vertical = 7.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "🆘 I'm Stuck on this Step",
-                        color = Color.White,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-
-                // Give me a Hint
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .background(Color(0xFF1E2638), RoundedCornerShape(6.dp))
-                        .clickable {
-                            coroutineScope.launch {
-                                controller.resolveDynamicTarget()
-                                overlayManager.showOverlay()
-                            }
-                        }
-                        .padding(horizontal = 10.dp, vertical = 7.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "💡 Give me a Hint",
-                        color = Color(0xFFFDE047),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Navigation Tabs: [Chat] | [Explanation]
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .background(
-                            color = if (activeTab == 0) Color(0xFF2563EB) else Color(0xFF1E2430),
-                            shape = RoundedCornerShape(6.dp)
-                        )
-                        .clickable { activeTab = 0 }
-                        .padding(vertical = 6.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "Chat",
-                        color = if (activeTab == 0) Color.White else Color(0xFFAAB0BD),
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 11.sp
-                    )
-                }
-
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .background(
-                            color = if (activeTab == 1) Color(0xFF2563EB) else Color(0xFF1E2430),
-                            shape = RoundedCornerShape(6.dp)
-                        )
-                        .clickable { activeTab = 1 }
-                        .padding(vertical = 6.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "Explanation",
-                        color = if (activeTab == 1) Color.White else Color(0xFFAAB0BD),
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 11.sp
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Tab Content
-            if (activeTab == 0) {
-                Box(modifier = Modifier.height(240.dp)) {
-                    ChatbotPanel(
-                        controller = controller,
-                        overlayManager = overlayManager,
-                        onAutoVerifyAction = onAutoVerifyBlenderAction,
-                        onCaptureScreen = onCapturePreviousWindow
-                    )
                 }
             } else {
+                // ==========================================
+                // ACTIVE GENERATED PLAN / TUTORIAL HUD STATE
+                // ==========================================
+                val activeStep = step!!
                 Column(
                     modifier = Modifier
+                        .weight(1f)
                         .fillMaxWidth()
-                        .background(Color(0xFF181C26), RoundedCornerShape(8.dp))
-                        .padding(10.dp)
+                        .verticalScroll(scrollState),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Text(
-                        text = "Step Explanation",
-                        color = Color.White,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = step.description,
-                        color = Color(0xFFCFD3DA),
-                        fontSize = 11.sp
-                    )
-                    if (!step.conceptualHint.isNullOrBlank()) {
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = "💡 Conceptual Hint: ${step.conceptualHint}",
-                            color = Color(0xFFFDE047),
-                            fontSize = 10.sp
-                        )
-                    }
-                    if (!step.reflectionQuestion.isNullOrBlank()) {
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = "❓ Reflection: ${step.reflectionQuestion}",
-                            color = Color(0xFFA78BFA),
-                            fontSize = 10.sp
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            // Current Progress Checklist
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(Color(0xFF181C26), RoundedCornerShape(8.dp))
-                    .padding(10.dp)
-            ) {
-                Text(
-                    text = "Current Progress",
-                    color = Color.White,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-
-                val steps = controller.stepsForCurrentApp()
-                for (idx in steps.indices) {
-                    val st = steps[idx]
-                    val isPast = idx < state.currentStepIndex
-                    val isCurrent = idx == state.currentStepIndex
-                    Row(
+                    // Goal Card (Capsule styling matching mockup)
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable {
-                                // Jump directly to this step
-                                while (controller.state.currentStepIndex > idx) controller.previousStep()
-                                while (controller.state.currentStepIndex < idx) controller.nextStep()
+                            .background(Color(0x38191E2E), RoundedCornerShape(14.dp))
+                            .border(1.dp, Color(0x33475569), RoundedCornerShape(14.dp))
+                            .padding(horizontal = 14.dp, vertical = 9.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Goal:  ",
+                                    color = Color(0xFFC084FC),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp
+                                )
+                                Text(
+                                    text = when {
+                                        controller.activePlan != null -> controller.activePlan!!.goalText
+                                        else -> activeStep.title
+                                    },
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp,
+                                    maxLines = 1
+                                )
                             }
-                            .padding(vertical = 3.dp),
+                            Text(
+                                text = "Reset",
+                                color = Color(0xFFA78BFA),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier
+                                    .clickable { controller.clearUserGoal() }
+                                    .padding(start = 6.dp)
+                            )
+                        }
+                    }
+
+                    // Generated Plan Card (Matching mockup)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color(0x29181D2D), RoundedCornerShape(16.dp))
+                            .border(1.dp, Color(0x2B475569), RoundedCornerShape(16.dp))
+                            .padding(12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = if (controller.activePlan != null) "Generated Plan" else "Tutorial Plan",
+                                color = Color(0xFFE2E8F0),
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 13.sp
+                            )
+                            Text(
+                                text = "Step ${activeStep.stepNumber} of ${activeStep.totalSteps}",
+                                color = Color(0xFF94A3B8),
+                                fontSize = 11.sp
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        allSteps.forEachIndexed { idx, st ->
+                            val isPast = idx < state.currentStepIndex
+                            val isCurrent = idx == state.currentStepIndex
+
+                            if (isCurrent) {
+                                // Highlighted active violet card
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(Color(0x3D7C3AED), RoundedCornerShape(12.dp))
+                                        .border(1.dp, Color(0x668B5CF6), RoundedCornerShape(12.dp))
+                                        .padding(horizontal = 10.dp, vertical = 7.dp)
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(24.dp)
+                                                .background(Color(0xFF8B5CF6), CircleShape),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = "${idx + 1}",
+                                                color = Color.White,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.width(10.dp))
+                                        Text(
+                                            text = "${idx + 1}. ${st.title}",
+                                            color = Color.White,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            } else {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            while (controller.state.currentStepIndex > idx) controller.previousStep()
+                                            while (controller.state.currentStepIndex < idx) controller.nextStep()
+                                        }
+                                        .padding(horizontal = 10.dp, vertical = 5.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(24.dp)
+                                            .background(
+                                                if (isPast) Color(0xFF6D28D9) else Color(0x26475569),
+                                                CircleShape
+                                            )
+                                            .border(
+                                                1.dp,
+                                                if (isPast) Color(0xFF8B5CF6) else Color(0xFF475569),
+                                                CircleShape
+                                            ),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = if (isPast) "✔" else "${idx + 1}",
+                                            color = if (isPast) Color.White else Color(0xFF94A3B8),
+                                            fontSize = if (isPast) 10.sp else 11.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Text(
+                                        text = "${idx + 1}. ${st.title}",
+                                        color = if (isPast) Color(0xFFCBD5E1) else Color(0xFF94A3B8),
+                                        fontSize = 12.sp,
+                                        fontWeight = if (isPast) FontWeight.Medium else FontWeight.Normal
+                                    )
+                                }
+                            }
+
+                            if (idx < allSteps.lastIndex) {
+                                Box(
+                                    modifier = Modifier
+                                        .padding(start = 21.dp)
+                                        .width(2.dp)
+                                        .height(6.dp)
+                                        .background(Color(0x33475569))
+                                )
+                            }
+                        }
+                    }
+
+                    // Assistant / Verification Speech Bubble (Matching mockup)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(16.dp)
-                                .background(
-                                    when {
-                                        isPast -> Color(0xFF059669)
-                                        isCurrent -> Color(0xFF2563EB)
-                                        else -> Color(0xFF282F3E)
+                                .size(42.dp)
+                                .background(Color(0x3D1E2436), CircleShape)
+                                .border(1.5.dp, Color(0xFF818CF8), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("🤖", fontSize = 20.sp)
+                        }
+
+                        Spacer(modifier = Modifier.width(10.dp))
+
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .background(Color(0x3D191F2E), RoundedCornerShape(14.dp))
+                                .border(1.dp, Color(0x33475569), RoundedCornerShape(14.dp))
+                                .clickable {
+                                    val exp = activeStep.expectedState
+                                    if (exp != null) onAutoVerifyBlenderAction(exp)
+                                }
+                                .padding(horizontal = 12.dp, vertical = 9.dp)
+                        ) {
+                            Column {
+                                Text(
+                                    text = when {
+                                        state.lastPedagogicalOutcome == PedagogicalOutcome.VERIFIED_SUCCESS -> "Action Verified! ✔"
+                                        state.lastPedagogicalOutcome == PedagogicalOutcome.VERIFIED_FAILURE -> "State Check: Mismatch"
+                                        state.lastPedagogicalOutcome == PedagogicalOutcome.UNCERTAIN -> "Verification Notice"
+                                        activeStep.expectedState != null -> "Waiting for your action"
+                                        else -> "Step Guidance"
                                     },
-                                    CircleShape
-                                ),
+                                    color = when {
+                                        state.lastPedagogicalOutcome == PedagogicalOutcome.VERIFIED_SUCCESS -> Color(0xFF34D399)
+                                        state.lastPedagogicalOutcome == PedagogicalOutcome.VERIFIED_FAILURE -> Color(0xFFF87171)
+                                        else -> Color(0xFFA78BFA)
+                                    },
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = state.adaptationReason?.takeIf { state.lastPedagogicalOutcome != null }
+                                        ?: "Next: ${activeStep.instruction} Then I will verify it.",
+                                    color = Color(0xFFCBD5E1),
+                                    fontSize = 11.sp,
+                                    lineHeight = 15.sp
+                                )
+                            }
+                        }
+                    }
+
+                    // Quick Action Bar (Hint, Stuck, Glow, Auto-Track)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .background(Color(0x2E1E2436), RoundedCornerShape(8.dp))
+                                .border(1.dp, Color(0x33475569), RoundedCornerShape(8.dp))
+                                .clickable {
+                                    coroutineScope.launch {
+                                        controller.resolveDynamicTarget()
+                                        overlayManager.showOverlay()
+                                    }
+                                }
+                                .padding(vertical = 5.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("💡 Hint", color = Color(0xFFFDE047), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .background(Color(0x2E1E2436), RoundedCornerShape(8.dp))
+                                .border(1.dp, Color(0x33475569), RoundedCornerShape(8.dp))
+                                .clickable {
+                                    coroutineScope.launch {
+                                        controller.resolveDynamicTarget()
+                                        overlayManager.showOverlay()
+                                        if (onRequestScreenshotHelp != null) {
+                                            onRequestScreenshotHelp()
+                                        } else {
+                                            controller.requestScreenshotHelp()
+                                        }
+                                    }
+                                }
+                                .padding(vertical = 5.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("🆘 Stuck", color = Color(0xFFF87171), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .weight(1.1f)
+                                .background(Color(0x333B82F6), RoundedCornerShape(8.dp))
+                                .border(1.dp, Color(0x6660A5FA), RoundedCornerShape(8.dp))
+                                .clickable {
+                                    coroutineScope.launch {
+                                        if (onRequestScreenshotHelp != null) {
+                                            onRequestScreenshotHelp()
+                                        } else {
+                                            controller.requestScreenshotHelp()
+                                        }
+                                    }
+                                }
+                                .padding(vertical = 5.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("📸 Analyze", color = Color(0xFF93C5FD), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .background(Color(0x2E1E2436), RoundedCornerShape(8.dp))
+                                .border(1.dp, Color(0x33475569), RoundedCornerShape(8.dp))
+                                .clickable {
+                                    if (overlayManager.isOverlayVisible) overlayManager.hideOverlay() else overlayManager.showOverlay()
+                                }
+                                .padding(vertical = 5.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = if (isPast || isCurrent) "✔" else "○",
-                                color = if (isPast || isCurrent) Color.White else Color(0xFF6B7280),
-                                fontSize = 9.sp,
+                                text = if (overlayManager.isOverlayVisible) "✨ Glow On" else "✨ Glow Off",
+                                color = Color(0xFFA78BFA),
+                                fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold
                             )
                         }
-                        Spacer(modifier = Modifier.width(8.dp))
+
+                        if (activeStep.expectedState != null) {
+                            Box(
+                                modifier = Modifier
+                                    .weight(1.1f)
+                                    .background(Color(0x33065F46), RoundedCornerShape(8.dp))
+                                    .border(1.dp, Color(0x6610B981), RoundedCornerShape(8.dp))
+                                    .clickable {
+                                        activeStep.expectedState?.let { onAutoVerifyBlenderAction(it) }
+                                    }
+                                    .padding(vertical = 5.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("🎯 Track", color = Color(0xFF34D399), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+
+                    // Step Navigation Controls
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
                         Text(
-                            text = "${idx + 1}. ${st.title}",
-                            color = when {
-                                isCurrent -> Color.White
-                                isPast -> Color(0xFF34D399)
-                                else -> Color(0xFF6B7280)
-                            },
+                            text = "← Previous",
+                            color = if (state.currentStepIndex > 0) Color(0xFFAAB0BD) else Color(0xFF475569),
                             fontSize = 11.sp,
-                            fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier
+                                .clickable(enabled = state.currentStepIndex > 0) { controller.previousStep() }
+                                .padding(4.dp)
+                        )
+                        Text(
+                            text = "Next →",
+                            color = if (state.currentStepIndex < allSteps.lastIndex) Color(0xFF818CF8) else Color(0xFF475569),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier
+                                .clickable(enabled = state.currentStepIndex < allSteps.lastIndex) { controller.nextStep() }
+                                .padding(4.dp)
                         )
                     }
-                }
-            }
 
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // Advanced Overlay & Window Tools Toggle
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { showAdvancedTools = !showAdvancedTools },
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = if (showAdvancedTools) "▾ Hide Overlay & Window Tools" else "▸ Advanced Overlay & Tools",
-                    color = Color(0xFFAAB0BD),
-                    fontSize = 10.sp
-                )
-            }
-
-            if (showAdvancedTools) {
-                Spacer(modifier = Modifier.height(6.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    TutorButton(
-                        text = if (overlayManager.isOverlayVisible) "Hide Glow" else "Show Glow",
-                        onClick = {
-                            if (overlayManager.isOverlayVisible) overlayManager.hideOverlay() else overlayManager.showOverlay()
+                    // Expandable Full Chat Drawer
+                    if (showFullChat) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(200.dp)
+                                .background(Color(0x2E1E2436), RoundedCornerShape(12.dp))
+                                .border(1.dp, Color(0x33475569), RoundedCornerShape(12.dp))
+                                .padding(6.dp)
+                        ) {
+                            ChatbotPanel(
+                                controller = controller,
+                                overlayManager = overlayManager,
+                                onAutoVerifyAction = onAutoVerifyBlenderAction,
+                                onCaptureScreen = onCapturePreviousWindow,
+                                onRequestScreenshotHelp = onRequestScreenshotHelp
+                            )
                         }
-                    )
-                    TutorButton(
-                        text = "Capture Window",
-                        onClick = onCapturePreviousWindow
-                    )
-                    TutorButton(
-                        text = "Region",
-                        onClick = onOpenRegionSelector
-                    )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Bottom Input Pill Bar (Matching mockup)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0x3D181D2D), RoundedCornerShape(22.dp))
+                        .border(1.dp, Color(0x33475569), RoundedCornerShape(22.dp))
+                        .padding(horizontal = 14.dp, vertical = 7.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "💬",
+                            fontSize = 14.sp,
+                            modifier = Modifier.clickable { showFullChat = !showFullChat }
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        BasicTextField(
+                            value = inputQuery,
+                            onValueChange = { inputQuery = it },
+                            singleLine = true,
+                            textStyle = TextStyle(color = Color.White, fontSize = 12.sp),
+                            cursorBrush = SolidColor(Color(0xFFA78BFA)),
+                            modifier = Modifier.weight(1f),
+                            decorationBox = { innerTextField ->
+                                if (inputQuery.isEmpty()) {
+                                    Text(
+                                        text = "Ask a question...",
+                                        color = Color(0xFF64748B),
+                                        fontSize = 12.sp
+                                    )
+                                }
+                                innerTextField()
+                            }
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "➤",
+                            color = if (inputQuery.isNotBlank()) Color(0xFFA78BFA) else Color(0xFF475569),
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier
+                                .clickable(enabled = inputQuery.isNotBlank()) {
+                                    val trimmed = inputQuery.trim()
+                                    val lower = trimmed.lowercase()
+                                    val isGoal = lower.startsWith("goal:") || lower.startsWith("i want to") ||
+                                        (lower.startsWith("create ") && (lower.contains("sphere") || lower.contains("cube"))) ||
+                                        (lower.startsWith("make ") && (lower.contains("sphere") || lower.contains("cube"))) ||
+                                        lower.contains("move") || lower.contains("delete") || lower.contains("rename")
+
+                                    if (isGoal) {
+                                        val cleanGoal = trimmed.replace(Regex("""^(goal:|i want to)\s*""", RegexOption.IGNORE_CASE), "").trim()
+                                        controller.startUserGoal(if (cleanGoal.isNotBlank()) cleanGoal else trimmed)
+                                    } else {
+                                        showFullChat = true
+                                    }
+                                    inputQuery = ""
+                                }
+                                .padding(4.dp)
+                        )
+                    }
                 }
             }
         }

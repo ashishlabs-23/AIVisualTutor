@@ -1,0 +1,7 @@
+=== TEST E02: Target Window Association Result ===
+Status: PASS
+Strategy: WindowsBlenderWindowLocator identifies Blender via HWND and process name 'blender.exe'
+Target Window HWND: 1573086
+Target Process ID: 25852
+Target Title: (Unsaved) - Blender 5.2.2 LTS
+Foreground Independence: The capture bounds are strictly resolved from Blender's native RECT, not GetForegroundWindow().

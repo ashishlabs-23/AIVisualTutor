@@ -1,0 +1,8 @@
+=== TEST D06: Retake Screenshot Result ===
+Status: PASS
+Previous Screenshot Path: C:\Users\HP\AppData\Local\Temp\AIVT_BlenderCapture_b0d1c09e88e54e85a12f938a9408be07_12272189915170751132.png
+Previous File Deleted: true
+New Screenshot Path: C:\Users\HP\AppData\Local\Temp\AIVT_BlenderCapture_01204a6668ec41f0a4268478695cbb88_13724492236093204807.png
+New File Size: 3130 bytes
+New Image Dimensions: 1366 × 768
+Evidence Saved To: D:\AIVisualTutor\AIVisualTutor-main\composeApp\validation\phase-8\evidence\test_d06_retake_second.png

@@ -28,46 +28,46 @@ object ApiKeyConfig {
 
     fun getGroqApiKey(): String {
         // 1. Runtime override
-        runtimeGroqKeyOverride?.let { return it }
+        runtimeGroqKeyOverride?.let { if (!isPlaceholder(it)) return it }
 
         // 2. System environment variable
         val envKey = System.getenv("GROQ_API_KEY")?.trim()
-        if (!envKey.isNullOrEmpty()) return envKey
+        if (!envKey.isNullOrEmpty() && !isPlaceholder(envKey)) return envKey
 
         // 3. JVM system property
         val propKey = System.getProperty("groq.api.key")?.trim()
-        if (!propKey.isNullOrEmpty()) return propKey
+        if (!propKey.isNullOrEmpty() && !isPlaceholder(propKey)) return propKey
 
         // 4. .env file in current directory, parent directory, or user home
         val dotEnvKey = resolveKeyFromFiles(".env", "GROQ_API_KEY")
-        if (!dotEnvKey.isNullOrEmpty()) return dotEnvKey
+        if (!dotEnvKey.isNullOrEmpty() && !isPlaceholder(dotEnvKey)) return dotEnvKey
 
         // 5. local.properties in current directory or parent directory
         val localPropKey = resolveKeyFromFiles("local.properties", "GROQ_API_KEY")
-        if (!localPropKey.isNullOrEmpty()) return localPropKey
+        if (!localPropKey.isNullOrEmpty() && !isPlaceholder(localPropKey)) return localPropKey
 
         return ""
     }
 
     fun getGeminiApiKey(): String {
         // 1. Runtime override
-        runtimeApiKeyOverride?.let { return it }
+        runtimeApiKeyOverride?.let { if (!isPlaceholder(it)) return it }
 
         // 2. System environment variable
         val envKey = System.getenv("GEMINI_API_KEY")?.trim()
-        if (!envKey.isNullOrEmpty()) return envKey
+        if (!envKey.isNullOrEmpty() && !isPlaceholder(envKey)) return envKey
 
         // 3. JVM system property
         val propKey = System.getProperty("gemini.api.key")?.trim()
-        if (!propKey.isNullOrEmpty()) return propKey
+        if (!propKey.isNullOrEmpty() && !isPlaceholder(propKey)) return propKey
 
         // 4. .env file in current directory, parent directory, or user home
         val dotEnvKey = resolveKeyFromFiles(".env", "GEMINI_API_KEY")
-        if (!dotEnvKey.isNullOrEmpty()) return dotEnvKey
+        if (!dotEnvKey.isNullOrEmpty() && !isPlaceholder(dotEnvKey)) return dotEnvKey
 
         // 5. local.properties in current directory or parent directory
         val localPropKey = resolveKeyFromFiles("local.properties", "GEMINI_API_KEY")
-        if (!localPropKey.isNullOrEmpty()) return localPropKey
+        if (!localPropKey.isNullOrEmpty() && !isPlaceholder(localPropKey)) return localPropKey
 
         return ""
     }
@@ -107,12 +107,20 @@ object ApiKeyConfig {
                     val value = trimmed.substring("$keyName=".length).trim()
                     // Strip quotes if present
                     val cleanValue = value.removeSurrounding("\"").removeSurrounding("'")
-                    if (cleanValue.isNotEmpty()) return cleanValue
+                    if (cleanValue.isNotEmpty() && !isPlaceholder(cleanValue)) return cleanValue
                 }
             }
             null
         } catch (_: Exception) {
             null
         }
+    }
+
+    fun isPlaceholder(value: String): Boolean {
+        val lower = value.lowercase().trim()
+        return lower.startsWith("your_") ||
+               lower.contains("api_key_here") ||
+               lower.contains("placeholder") ||
+               lower == "mock_key"
     }
 }

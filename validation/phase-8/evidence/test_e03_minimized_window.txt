@@ -1,0 +1,5 @@
+=== TEST E03: Minimized Window Detection Result ===
+Status: PASS
+Mechanism: WindowsBlenderWindowLocator evaluates Win32 IsIconic(hwnd)
+Behavior: If IsIconic(hwnd) returns true, locator returns BlenderWindowResult.Minimized
+Capture Service Handling: Emits user-friendly error asking user to unminimize Blender.

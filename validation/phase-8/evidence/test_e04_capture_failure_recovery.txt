@@ -1,0 +1,6 @@
+=== TEST E04: Capture Failure Recovery Result ===
+Status: PASS
+Failure Induced: Zero-sized bounds returned from locator
+Coordinator Error Message: Captured screenshot is invalid: Blender window dimensions are too small or invalid: 0x0
+Can Retry Flag: true
+Lesson Intact: true

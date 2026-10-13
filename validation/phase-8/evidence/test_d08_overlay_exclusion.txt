@@ -1,0 +1,6 @@
+=== TEST D08: Overlay Exclusion Verification ===
+Status: PASS
+Overlay Excluded Hook Invoked: true
+Overlay Restored Hook Invoked: true
+Capture Strategy: Desktop Robot frame grab with transient tutor HUD invisibility (150ms flush delay)
+Result: Tutor overlay controls are excluded from the Blender workspace screenshot.

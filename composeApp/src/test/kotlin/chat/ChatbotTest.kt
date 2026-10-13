@@ -67,9 +67,14 @@ class ChatbotTest {
 
     @Test
     fun `ApiKeyConfig detects Groq API key and active provider`() {
-        val groqKey = ApiKeyConfig.getGroqApiKey()
-        assertTrue(groqKey.isNotBlank(), "Expected GROQ_API_KEY to be detected from .env or environment")
-        assertEquals("Groq", ApiKeyConfig.getActiveProvider())
+        ApiKeyConfig.setRuntimeGroqKey("test-groq-key")
+        try {
+            val groqKey = ApiKeyConfig.getGroqApiKey()
+            assertTrue(groqKey.isNotBlank(), "Expected GROQ_API_KEY to be detected")
+            assertEquals("Groq", ApiKeyConfig.getActiveProvider())
+        } finally {
+            ApiKeyConfig.setRuntimeGroqKey("")
+        }
     }
 
     @Test
@@ -91,25 +96,33 @@ class ChatbotTest {
 
     @Test
     fun `SmartChatbotProvider routes to Groq when key is configured`() = runBlocking {
-        val smartProvider = SmartChatbotProvider()
-        val context = ChatContext(
-            question = "Where is the loop cut tool?",
-            applicationName = "Blender",
-            currentTaskTitle = "Subdivide geometry"
-        )
+        ApiKeyConfig.setRuntimeGroqKey("test-groq-key")
+        try {
+            val fakeGroq = object : ChatbotProvider {
+                override suspend fun askTutor(context: ChatContext) = ChatResponse(
+                    replyText = "Loop Cut is located on the left toolbar",
+                    providerModel = "openai/gpt-oss-120b"
+                )
+            }
+            val smartProvider = SmartChatbotProvider(groqProvider = fakeGroq)
+            val context = ChatContext(
+                question = "Where is the loop cut tool?",
+                applicationName = "Blender",
+                currentTaskTitle = "Subdivide geometry"
+            )
 
-        val response = smartProvider.askTutor(context)
+            val response = smartProvider.askTutor(context)
 
-        println("RESPONSE PROVIDER MODEL: ${response.providerModel}")
-        println("RESPONSE EXPLANATION: ${response.explanation}")
-        println("RESPONSE REPLY: ${response.replyText}")
-        assertNotNull(response.replyText)
-        assertEquals("openai/gpt-oss-120b", response.providerModel)
+            assertNotNull(response.replyText)
+            assertEquals("openai/gpt-oss-120b", response.providerModel)
+        } finally {
+            ApiKeyConfig.setRuntimeGroqKey("")
+        }
     }
 
     @Test
     fun `TutorController resolveTargetForName updates currentHighlight and activates assistance`() = runBlocking {
-        val controller = TutorController()
+        val controller = TutorController(loadMockTutorialByDefault = true)
         controller.selectApplication(ApplicationType.BLENDER)
 
         val result = controller.resolveTargetForName("Extrude")

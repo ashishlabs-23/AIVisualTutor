@@ -1,0 +1,5 @@
+=== TEST E06: Display Configuration & Scaling Result ===
+Status: PASS
+Device Query: 1 active screen device(s)
+High-DPI Support: `Robot.createMultiResolutionScreenCapture(bounds)` queries OS multi-resolution surface without raster distortion.
+Coordinate Bounds Clipping: RobotBlenderScreenCaptureService clips capture rectangle to the intersecting device's physical bounds.

@@ -261,6 +261,32 @@ class UnavailableBlenderStateProvider : BlenderStateProvider {
 class StateVerifier {
     fun validate(expected: ExpectedState): List<String> = expected.validate()
 
+    /**
+     * Checks whether an [ObservedState] satisfies all conditions of an [ExpectedState].
+     */
+    fun matchesExpectedState(expected: ExpectedState, observed: ObservedState): Boolean {
+        if (expected.targetMode != null && observed.mode?.equals(expected.targetMode, ignoreCase = true) != true) {
+            return false
+        }
+        if (!expected.targetName.isNullOrBlank()) {
+            val hasObject = observed.objects.any { objectMatchesName(it, expected.targetName) }
+            if (!hasObject) return false
+            if (!expected.targetType.isNullOrBlank()) {
+                val matchesType = observed.objects.any {
+                    objectMatchesName(it, expected.targetName) && it.type.equals(expected.targetType, ignoreCase = true)
+                }
+                if (!matchesType) return false
+            }
+        }
+        val conditions = (inferRequiredConditions(expected) + expected.requiredConditions).distinct()
+        for (c in conditions) {
+            if (c.required && matchesCondition(expected, observed, c) != true) {
+                return false
+            }
+        }
+        return true
+    }
+
     fun verify(
         expected: ExpectedState,
         baseline: BaselineState?,

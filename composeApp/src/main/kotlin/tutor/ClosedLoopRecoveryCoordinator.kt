@@ -14,6 +14,7 @@ import context.VerificationOperation
 import context.VerificationResult
 import context.VerificationRun
 import context.VerificationStatus
+import context.toObservedState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -86,6 +87,11 @@ class ClosedLoopRecoveryCoordinator(
             )
             state = evidenceState
             return evidenceState
+        }
+
+        val prereqFailure = resolvePrerequisites(stepIndex, activeStep)
+        if (prereqFailure != null) {
+            return prereqFailure
         }
 
         val reqId: String
@@ -196,6 +202,11 @@ class ClosedLoopRecoveryCoordinator(
             )
             state = evidenceState
             return evidenceState
+        }
+
+        val prereqFailure = resolvePrerequisites(stepIndex, activeStep)
+        if (prereqFailure != null) {
+            return prereqFailure
         }
 
         val reqId: String
@@ -595,5 +606,95 @@ class ClosedLoopRecoveryCoordinator(
             )
             else -> null
         }
+    }
+
+    private suspend fun resolvePrerequisites(stepIndex: Int, activeStep: models.TutorStep): ClosedLoopRecoveryState? {
+        val plan = controller.activePlan ?: return null
+        val currentPlanStep = plan.steps.getOrNull(stepIndex) ?: return null
+        if (currentPlanStep.prerequisiteStepIds.isEmpty()) return null
+
+        val completedStepIds = controller.goalProgressState.completedStepIds
+        val allPrereqIds = LinkedHashSet<String>()
+        fun collectPrereqs(stepId: String) {
+            val step = plan.steps.find { it.stepId == stepId } ?: return
+            for (pId in step.prerequisiteStepIds) {
+                if (!allPrereqIds.contains(pId)) {
+                    collectPrereqs(pId)
+                    allPrereqIds.add(pId)
+                }
+            }
+        }
+        collectPrereqs(currentPlanStep.stepId)
+
+        val missingPrereqIds = allPrereqIds.filterNot { it in completedStepIds }
+        if (missingPrereqIds.isEmpty()) return null
+
+        var currentObs = workflow.lastObservedState
+        if (currentObs == null) {
+            val obs = try {
+                workflow.provider.observe()
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (e: Exception) {
+                null
+            }
+            if (obs != null && obs.status != context.BlenderObservationStatus.AVAILABLE) {
+                val diagnostic = obs.diagnostic ?: "Blender state telemetry unavailable."
+                val isUnavailable = obs.status == context.BlenderObservationStatus.UNAVAILABLE
+                val message = if (isUnavailable) {
+                    "Blender is not running or the state adapter is not reachable."
+                } else {
+                    "Blender state telemetry unavailable. Ensure Blender is running and connected."
+                }
+                val evidenceState = ClosedLoopRecoveryState.NeedsMoreEvidence(
+                    requestId = UUID.randomUUID().toString(),
+                    stepIndex = stepIndex,
+                    message = message,
+                    diagnostic = diagnostic,
+                    canRetry = true
+                )
+                state = evidenceState
+                return evidenceState
+            } else if (obs != null && obs.status == context.BlenderObservationStatus.AVAILABLE) {
+                val converted = obs.toObservedState(UUID.randomUUID().toString())
+                controller.recordObservedState(converted)
+                currentObs = converted
+            }
+        }
+
+        val unresolvablePrereqs = mutableListOf<UserGoalPlanStep>()
+        for (prereqId in missingPrereqIds) {
+            val prereqStep = plan.steps.find { it.stepId == prereqId }
+            if (prereqStep != null) {
+                val prereqExpected = prereqStep.expectedState
+                if (prereqExpected != null) {
+                    val isSatisfied = if (currentObs != null) {
+                        workflow.verifier.matchesExpectedState(prereqExpected, currentObs)
+                    } else false
+
+                    if (isSatisfied) {
+                        controller.recordPrerequisiteSatisfied(prereqStep.stepId)
+                    } else {
+                        unresolvablePrereqs.add(prereqStep)
+                    }
+                } else {
+                    controller.recordPrerequisiteSatisfied(prereqStep.stepId)
+                }
+            }
+        }
+
+        if (unresolvablePrereqs.isNotEmpty()) {
+            val firstUnmet = unresolvablePrereqs.first()
+            val evidenceState = ClosedLoopRecoveryState.NeedsMoreEvidence(
+                requestId = UUID.randomUUID().toString(),
+                stepIndex = stepIndex,
+                message = "Prerequisite step '${firstUnmet.title}' must be satisfied before verifying '${activeStep.title}'. (${firstUnmet.instruction})",
+                diagnostic = "Prerequisite step '${firstUnmet.stepId}' is not satisfied.",
+                canRetry = true
+            )
+            state = evidenceState
+            return evidenceState
+        }
+        return null
     }
 }

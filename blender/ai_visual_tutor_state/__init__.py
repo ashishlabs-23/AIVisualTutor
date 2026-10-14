@@ -388,9 +388,7 @@ def register():
         return
 
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    if hasattr(socket, "SO_EXCLUSIVEADDRUSE") and os.name == "nt":
-        server.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
-    elif hasattr(socket, "SO_REUSEADDR") and os.name != "nt":
+    if hasattr(socket, "SO_REUSEADDR"):
         server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
     try:

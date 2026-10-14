@@ -618,12 +618,23 @@ class TutorController(
         val plan = activePlan
         if (plan != null) {
             val fromPlanStep = plan.steps.getOrNull(fromIndex)
-            if (fromPlanStep != null && fromPlanStep.expectedState == null) {
-                goalProgressState = goalProgressTracker.recordStepVerification(
-                    stepId = fromPlanStep.stepId,
-                    verified = true,
-                    operationPlanVersion = goalProgressTracker.planVersion
-                )
+            if (fromPlanStep != null) {
+                if (fromPlanStep.expectedState == null) {
+                    goalProgressState = goalProgressTracker.recordStepVerification(
+                        stepId = fromPlanStep.stepId,
+                        verified = true,
+                        operationPlanVersion = goalProgressTracker.planVersion
+                    )
+                } else {
+                    val lastObs = sessionContext.lastObservedState
+                    if (lastObs != null && recoveryCoordinator.workflow.verifier.matchesExpectedState(fromPlanStep.expectedState!!, lastObs)) {
+                        goalProgressState = goalProgressTracker.recordStepVerification(
+                            stepId = fromPlanStep.stepId,
+                            verified = true,
+                            operationPlanVersion = goalProgressTracker.planVersion
+                        )
+                    }
+                }
             }
         }
 
@@ -687,12 +698,23 @@ class TutorController(
         if (plan != null && clamped > fromIndex) {
             for (i in fromIndex until clamped) {
                 val pastStep = plan.steps.getOrNull(i)
-                if (pastStep != null && pastStep.expectedState == null) {
-                    goalProgressState = goalProgressTracker.recordStepVerification(
-                        stepId = pastStep.stepId,
-                        verified = true,
-                        operationPlanVersion = goalProgressTracker.planVersion
-                    )
+                if (pastStep != null) {
+                    if (pastStep.expectedState == null) {
+                        goalProgressState = goalProgressTracker.recordStepVerification(
+                            stepId = pastStep.stepId,
+                            verified = true,
+                            operationPlanVersion = goalProgressTracker.planVersion
+                        )
+                    } else {
+                        val lastObs = sessionContext.lastObservedState
+                        if (lastObs != null && recoveryCoordinator.workflow.verifier.matchesExpectedState(pastStep.expectedState!!, lastObs)) {
+                            goalProgressState = goalProgressTracker.recordStepVerification(
+                                stepId = pastStep.stepId,
+                                verified = true,
+                                operationPlanVersion = goalProgressTracker.planVersion
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -739,6 +761,18 @@ class TutorController(
             return goalProgressState.completedStepIds.contains(step.stepId)
         }
         return index < state.currentStepIndex
+    }
+
+    /**
+     * Records a prerequisite step as satisfied when verified via direct telemetry.
+     */
+    fun recordPrerequisiteSatisfied(stepId: String) {
+        val plan = activePlan ?: return
+        goalProgressState = goalProgressTracker.recordStepVerification(
+            stepId = stepId,
+            verified = true,
+            operationPlanVersion = goalProgressTracker.planVersion
+        )
     }
 
     fun togglePause() {

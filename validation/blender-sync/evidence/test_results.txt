@@ -1,0 +1,44 @@
+========================================================================
+GRADLE TEST EXECUTION RESULTS
+========================================================================
+Test Run Time: 2026-10-13 23:54 IST
+JDK: OpenJDK 64-Bit Server VM (17.0.20+8) Eclipse Adoptium
+Blender Version: 5.2.2 LTS (D:\blender.exe)
+
+------------------------------------------------------------------------
+1. Live Blender Integration Diagnostic Tests
+------------------------------------------------------------------------
+Test: bridge.LiveProductionVerificationDiagnosticTest
+- testFullProductionWorkflowWithLiveBlender: PASSED
+- testLiveNavigationDirectlyToStep3AutoReconcilesPrerequisites: PASSED
+
+Result: 2/2 tests PASSED
+
+------------------------------------------------------------------------
+2. Regression Test Suite
+------------------------------------------------------------------------
+Test: bridge.BlenderSyncRegressionTest
+- test1_sphereAlreadyExists_verifiedSuccessfully: PASSED
+- test2_numberedDuplicateSphere_matchesAndVerifiesSuccessfully: PASSED
+- test3_baselineCaptureAfterSphereCreation_recoversViaPreCreationBaseline: PASSED
+- test4_providerFailure_doesNotMistakeForEmptySceneAndAllowsRetry: PASSED
+- test5_prerequisiteStateConsistency_uiAndAuthoritativeTrackerAgree: PASSED
+- test6_staleAsyncResponse_rejectedByVersionEpoch: PASSED
+- test7_retryExhaustion_recommendsSpecificCorrection: PASSED
+- test8_multipleSpheres_validatesCleanly: PASSED
+- test9_endToEndCreationProgression_satisfiesMandatoryOutcomes: PASSED
+- test10_stateProviderTelemetryContract_fieldsParsedCorrectly: PASSED
+
+Result: 10/10 tests PASSED
+
+------------------------------------------------------------------------
+3. Full Project Test Suite Summary (.\gradlew.bat test)
+------------------------------------------------------------------------
+Total Tests Executed: 627
+Failures: 0
+Errors: 0
+Ignored/Skipped: 15 (optional external API tests requiring remote cloud credentials)
+Success Rate: 100%
+Execution Duration: 1m 31.69s
+BUILD STATUS: SUCCESSFUL
+========================================================================

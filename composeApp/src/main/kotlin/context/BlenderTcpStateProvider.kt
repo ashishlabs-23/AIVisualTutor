@@ -27,28 +27,35 @@ class BlenderTcpStateProvider(
     }
 
     override suspend fun observe(): BlenderStateObservation = withContext(Dispatchers.IO) {
-        try {
-            Socket().use { socket ->
-                socket.connect(InetSocketAddress(host, port), timeoutMillis)
-                socket.soTimeout = timeoutMillis
-                val input = ResponseReader(socket.getInputStream())
-                val output = BufferedOutputStream(socket.getOutputStream())
-                output.write(REQUEST)
-                output.flush()
-                readObservation(input)
+        for (attempt in 1..2) {
+            try {
+                return@withContext Socket().use { socket ->
+                    socket.connect(InetSocketAddress(host, port), timeoutMillis)
+                    socket.soTimeout = timeoutMillis
+                    val input = ResponseReader(socket.getInputStream())
+                    val output = BufferedOutputStream(socket.getOutputStream())
+                    output.write(REQUEST)
+                    output.flush()
+                    readObservation(input)
+                }
+            } catch (timeout: SocketTimeoutException) {
+                if (attempt == 1) {
+                    kotlinx.coroutines.delay(100)
+                    continue
+                }
+                return@withContext unavailable(BlenderObservationStatus.FAILED, "Blender state request timed out.")
+            } catch (missing: ConnectException) {
+                return@withContext unavailable(BlenderObservationStatus.UNAVAILABLE, "No Blender state adapter is listening on loopback port $port.")
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                return@withContext unavailable(
+                    BlenderObservationStatus.FAILED,
+                    "Blender state request failed: ${error.message ?: error.javaClass.simpleName}"
+                )
             }
-        } catch (timeout: SocketTimeoutException) {
-            unavailable(BlenderObservationStatus.FAILED, "Blender state request timed out.")
-        } catch (missing: ConnectException) {
-            unavailable(BlenderObservationStatus.UNAVAILABLE, "No Blender state adapter is listening on loopback port $port.")
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (error: Exception) {
-            unavailable(
-                BlenderObservationStatus.FAILED,
-                "Blender state request failed: ${error.message ?: error.javaClass.simpleName}"
-            )
         }
+        unavailable(BlenderObservationStatus.FAILED, "Blender state request timed out.")
     }
 
     private fun readObservation(input: ResponseReader): BlenderStateObservation {
@@ -186,7 +193,7 @@ class BlenderTcpStateProvider(
 
     companion object {
         const val DEFAULT_PORT = 47629
-        const val DEFAULT_TIMEOUT_MILLIS = 1_500
+        const val DEFAULT_TIMEOUT_MILLIS = 5_000
         const val MAX_TIMEOUT_MILLIS = 60_000
         const val MAX_OBJECTS = 10_000
         const val LOOPBACK_ADDRESS = "127.0.0.1"

@@ -18,7 +18,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 class BlenderVerificationWorkflow(
-    private val provider: BlenderStateProvider = BlenderTcpStateProvider(),
+    internal val provider: BlenderStateProvider = BlenderTcpStateProvider(),
     internal val verifier: StateVerifier = StateVerifier(),
     private val resultStore: VerificationResultStore = VerificationResultStore.default(),
     private val runWindow: Duration = Duration.ofMinutes(30),

@@ -135,19 +135,31 @@ fun WindowScope.TutorPanel(
                                 fontSize = 17.sp
                             )
                             Spacer(modifier = Modifier.height(2.dp))
+                            val lastObs = controller.recoveryCoordinator.workflow.lastObservation
+                            val isConnected = lastObs?.status == context.BlenderObservationStatus.AVAILABLE
+                            val statusColor = when {
+                                state.selectedApplication != ApplicationType.BLENDER -> Color(0xFF22C55E)
+                                isConnected -> Color(0xFF22C55E)
+                                lastObs?.status == context.BlenderObservationStatus.FAILED -> Color(0xFFEF4444)
+                                lastObs?.status == context.BlenderObservationStatus.UNAVAILABLE -> Color(0xFFEF4444)
+                                else -> Color(0xFFFBBF24)
+                            }
+                            val statusText = when {
+                                state.selectedApplication != ApplicationType.BLENDER -> "${state.selectedApplication.displayName} connected"
+                                isConnected -> "Blender connected (port 47629)"
+                                lastObs?.status == context.BlenderObservationStatus.FAILED -> "Blender error: ${lastObs.diagnostic ?: "check console"}"
+                                lastObs?.status == context.BlenderObservationStatus.UNAVAILABLE -> "Blender not connected (port 47629)"
+                                else -> "Blender adapter (port 47629)"
+                            }
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Box(
                                     modifier = Modifier
                                         .size(6.dp)
-                                        .background(Color(0xFF22C55E), CircleShape)
+                                        .background(statusColor, CircleShape)
                                 )
                                 Spacer(modifier = Modifier.width(5.dp))
                                 Text(
-                                    text = if (state.selectedApplication == ApplicationType.BLENDER) {
-                                        "Blender state connected"
-                                    } else {
-                                        "${state.selectedApplication.displayName} connected"
-                                    },
+                                    text = statusText,
                                     color = Color(0xFF94A3B8),
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Medium
@@ -571,6 +583,19 @@ fun WindowScope.TutorPanel(
 
                     // Prerequisite step execution guard banner
                     if (!controller.canExecuteCurrentStep()) {
+                        val plan = controller.activePlan
+                        val currentStepDef = plan?.steps?.getOrNull(state.currentStepIndex)
+                        val unmetPrereqIds = currentStepDef?.prerequisiteStepIds?.filterNot {
+                            controller.goalProgressState.completedStepIds.contains(it)
+                        } ?: emptyList()
+                        val unmetTitles = unmetPrereqIds.mapNotNull { id ->
+                            plan?.steps?.find { it.stepId == id }?.title
+                        }
+                        val prereqWarning = if (unmetTitles.isNotEmpty()) {
+                            "⚠️ Prerequisite step${if (unmetTitles.size > 1) "s" else ""} '${unmetTitles.joinToString("', '")}' must be satisfied before this step can be verified."
+                        } else {
+                            "⚠️ Prerequisite steps must be satisfied before this step can be verified."
+                        }
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -579,7 +604,7 @@ fun WindowScope.TutorPanel(
                                 .padding(8.dp)
                         ) {
                             Text(
-                                text = "⚠️ Prerequisite steps must be satisfied before this step can be verified.",
+                                text = prereqWarning,
                                 color = Color(0xFFFDE68A),
                                 fontSize = 11.sp
                             )
@@ -831,6 +856,8 @@ fun WindowScope.TutorPanel(
                                     is tutor.ClosedLoopRecoveryState.RetryLimitReached -> "Retry Limit Reached"
                                     is tutor.ClosedLoopRecoveryState.NeedsMoreEvidence -> "Verification Notice"
                                     is tutor.ClosedLoopRecoveryState.AwaitingRetry -> "Ready to Retry"
+                                    is tutor.ClosedLoopRecoveryState.Error -> "Verification Error"
+                                    is tutor.ClosedLoopRecoveryState.Cancelled -> "Verification Cancelled"
                                     else -> when {
                                         state.lastPedagogicalOutcome == PedagogicalOutcome.VERIFIED_SUCCESS -> "Action Verified! ✔"
                                         state.lastPedagogicalOutcome == PedagogicalOutcome.VERIFIED_FAILURE -> "State Check: Mismatch"
@@ -843,9 +870,11 @@ fun WindowScope.TutorPanel(
                                 val bubbleColor = when (recoveryState) {
                                     is tutor.ClosedLoopRecoveryState.VerifiedSuccess -> Color(0xFF34D399)
                                     is tutor.ClosedLoopRecoveryState.RecoveryRecommended,
-                                    is tutor.ClosedLoopRecoveryState.RetryLimitReached -> Color(0xFFF87171)
+                                    is tutor.ClosedLoopRecoveryState.RetryLimitReached,
+                                    is tutor.ClosedLoopRecoveryState.Error -> Color(0xFFF87171)
                                     is tutor.ClosedLoopRecoveryState.NeedsMoreEvidence -> Color(0xFFFBBF24)
                                     is tutor.ClosedLoopRecoveryState.Verifying -> Color(0xFF60A5FA)
+                                    is tutor.ClosedLoopRecoveryState.Cancelled -> Color(0xFF94A3B8)
                                     else -> when {
                                         state.lastPedagogicalOutcome == PedagogicalOutcome.VERIFIED_SUCCESS -> Color(0xFF34D399)
                                         state.lastPedagogicalOutcome == PedagogicalOutcome.VERIFIED_FAILURE -> Color(0xFFF87171)
@@ -860,6 +889,8 @@ fun WindowScope.TutorPanel(
                                     is tutor.ClosedLoopRecoveryState.RetryLimitReached -> recoveryState.message
                                     is tutor.ClosedLoopRecoveryState.NeedsMoreEvidence -> recoveryState.message
                                     is tutor.ClosedLoopRecoveryState.AwaitingRetry -> "Perform the action in Blender, then click Verify to check."
+                                    is tutor.ClosedLoopRecoveryState.Error -> recoveryState.message + (recoveryState.cause?.message?.let { ": $it" } ?: "")
+                                    is tutor.ClosedLoopRecoveryState.Cancelled -> recoveryState.reason
                                     else -> state.adaptationReason?.takeIf { state.lastPedagogicalOutcome != null }
                                         ?: "Next: ${activeStep.instruction} Then I will verify it."
                                 }
@@ -907,6 +938,21 @@ fun WindowScope.TutorPanel(
                                             .padding(horizontal = 8.dp, vertical = 3.dp)
                                     ) {
                                         Text("Reset Attempts & Try Again", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                } else if (recoveryState is tutor.ClosedLoopRecoveryState.Error) {
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Box(
+                                        modifier = Modifier
+                                            .background(Color(0x33EF4444), RoundedCornerShape(6.dp))
+                                            .border(1.dp, Color(0x66EF4444), RoundedCornerShape(6.dp))
+                                            .clickable {
+                                                coroutineScope.launch {
+                                                    controller.recoveryCoordinator.verifyActiveStep()
+                                                }
+                                            }
+                                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                                    ) {
+                                        Text("Retry Verification", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                                     }
                                 }
                             }

@@ -365,7 +365,7 @@ fun main() {
     val avatarInitialX = (initialX - 440.dp).coerceAtLeast(20.dp)
     val avatarWindowState = rememberWindowState(
         position = WindowPosition(x = avatarInitialX, y = initialY),
-        size = DpSize(420.dp, 240.dp)
+        size = DpSize(440.dp, 260.dp)
     )
 
     AvatarWindow(

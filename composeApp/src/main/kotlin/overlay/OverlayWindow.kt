@@ -422,7 +422,7 @@ fun OverlayWindowContent(
                 ?: tutorState.adaptiveInstruction?.instructionText
                 ?: currentStep?.instruction
 
-            val calloutColor = Color(0xFFFACC15)
+            val calloutColor = Color(0xFFF5792A) // Official Blender warm orange matching PRD reference
             Highlight(region = adjustedRegion, color = calloutColor)
             Arrow(
                 region = adjustedRegion,

@@ -14,27 +14,30 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.CircularProgressIndicator
 import androidx.compose.material.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /**
- * Integrated frosted-glass instruction bubble displayed beside the robot avatar.
+ * Reference-matched dark translucent instruction bubble displayed beside the robot avatar.
+ * Adheres strictly to the "AI Visual Tutor — Avatar States & PRD" design specification.
  *
- * Provides:
- * - Step progress indicator or context state chip.
- * - Current active instruction text (or idle/offline prompt).
- * - Target control indicator if resolved.
- * - Primary action buttons: Highlight, Explain More, Open Workspace.
- * - Contextual in-bubble explanation display with loading & dismiss controls.
+ * Official Palette:
+ * - Primary Orange: #F5792A (Blender warm orange)
+ * - Accent: #FFA757 (Soft orange glow)
+ * - Dark UI: #1E2127 (Graphite bubble background)
+ * - Surface: #282F38 (Card surface)
+ * - Text: #F1F5F9 (Clean white text)
+ * - Success: #22C55E (Green confirmation)
+ * - Error: #EF4444 (Red alert)
  */
 @Composable
 fun InstructionBubble(
@@ -43,7 +46,7 @@ fun InstructionBubble(
     instructionText: String?,
     targetControlName: String? = null,
     statusLabel: String = "Ready",
-    statusColor: Color = Color(0xFFF59E0B),
+    statusColor: Color = Color(0xFFF5792A),
     isHighlightBusy: Boolean = false,
     highlightFeedback: String? = null,
     onHighlightClick: () -> Unit = {},
@@ -53,108 +56,145 @@ fun InstructionBubble(
     onDismissExplanation: () -> Unit = {},
     onToggleWorkspace: () -> Unit = {},
     isWorkspaceOpen: Boolean = false,
+    onStartTutorialClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val primaryOrange = Color(0xFFF5792A)
+    val darkUiBackground = Color(0xF21E2127) // 95% opacity graphite
+    val surfaceColor = Color(0xFF282F38)
+    val borderColor = Color(0xFF2D323B)
+    val textWhite = Color(0xFFF1F5F9)
+    val textMuted = Color(0xFF8A94A6)
+
+    val isOffline = statusLabel.contains("Offline", ignoreCase = true) || statusLabel.contains("No Blender", ignoreCase = true)
+    val isSuccess = statusLabel.contains("Great job", ignoreCase = true) || statusLabel.contains("Success", ignoreCase = true)
+    val isThinking = statusLabel.contains("Thinking", ignoreCase = true) || isHighlightBusy || isExplainBusy
+    val isGreeting = (stepNumber == null || stepNumber == 0) && instructionText.isNullOrBlank() && !isOffline
+
     Column(
         modifier = modifier
-            .widthIn(min = 270.dp, max = 390.dp)
+            .widthIn(min = 280.dp, max = 390.dp)
             .background(
-                color = Color(0xEE0F1424), // High-opacity frosted dark glass
-                shape = RoundedCornerShape(18.dp)
+                color = darkUiBackground,
+                shape = RoundedCornerShape(20.dp)
             )
             .border(
                 width = 1.dp,
-                brush = Brush.linearGradient(
-                    listOf(
-                        Color(0x888B5CF6),
-                        Color(0x4438BDF8),
-                        Color(0x22FFFFFF),
-                        statusColor.copy(alpha = 0.4f)
-                    )
-                ),
-                shape = RoundedCornerShape(18.dp)
+                color = if (isSuccess) Color(0xFF22C55E).copy(alpha = 0.6f) else borderColor,
+                shape = RoundedCornerShape(20.dp)
             )
-            .padding(14.dp)
+            .padding(horizontal = 16.dp, vertical = 14.dp)
     ) {
-        // 1. Header: Step index badge & Status Chip
+        // 1. Top Bar: Title / Greeting & HUD Workspace Toggle
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            if (stepNumber != null && totalSteps != null && totalSteps > 0) {
-                Text(
-                    text = "Step $stepNumber of $totalSteps",
-                    color = Color(0xFFAAB0BD),
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-            } else {
-                Text(
-                    text = "AI Visual Tutor",
-                    color = Color(0xFFAAB0BD),
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
+            val titleText = when {
+                isGreeting -> "Hi! 👋"
+                isSuccess -> "Great job! 🎉"
+                isThinking -> "Finding the ${targetControlName ?: "menu"}..."
+                isOffline -> "No Blender Detected 💤"
+                else -> if (!targetControlName.isNullOrBlank()) "Let's locate $targetControlName!" else "Active Step"
             }
 
-            // Status chip
+            Text(
+                text = titleText,
+                color = if (isSuccess) Color(0xFF22C55E) else textWhite,
+                fontSize = 13.5.sp,
+                fontWeight = FontWeight.Bold
+            )
+
+            // Mini HUD Toggle Chip
             Box(
                 modifier = Modifier
-                    .background(statusColor.copy(alpha = 0.15f), RoundedCornerShape(6.dp))
-                    .border(1.dp, statusColor.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
-                    .padding(horizontal = 7.dp, vertical = 2.dp)
+                    .background(surfaceColor, RoundedCornerShape(8.dp))
+                    .border(1.dp, Color(0xFF3E4652), RoundedCornerShape(8.dp))
+                    .clickable { onToggleWorkspace() }
+                    .padding(horizontal = 7.dp, vertical = 3.dp)
             ) {
                 Text(
-                    text = statusLabel,
-                    color = statusColor,
+                    text = if (isWorkspaceOpen) "HUD ▾" else "HUD ▴",
+                    color = textMuted,
                     fontSize = 10.sp,
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = FontWeight.Medium
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(7.dp))
+        Spacer(modifier = Modifier.height(6.dp))
 
-        // 2. Main Instruction or Idle/Offline Text
-        val displayText = when {
-            !instructionText.isNullOrBlank() -> instructionText
-            statusLabel.contains("Offline", ignoreCase = true) ->
-                "Blender adapter disconnected on port 47629. Start Blender and enable the State Adapter."
+        // 2. Main Instruction or State Description Text
+        val bodyText = when {
+            isGreeting ->
+                "I'm your AI Visual Tutor. Shall we create something together?"
+            isSuccess ->
+                "You've successfully created the UV Sphere!"
+            isThinking ->
+                "Analyzing Blender window layout. Please wait a moment."
+            isOffline ->
+                "I couldn't find Blender. Please open Blender and I'll be right here."
+            !instructionText.isNullOrBlank() ->
+                instructionText
             else ->
-                "Ready to guide. Enter a 3D goal in the workspace or start Blender to begin."
+                "Ready to guide. Enter a 3D goal or select a tutorial step to begin."
         }
 
         Text(
-            text = displayText,
-            color = Color.White,
-            fontWeight = FontWeight.SemiBold,
-            fontSize = 13.sp,
-            lineHeight = 18.sp
+            text = bodyText,
+            color = if (isSuccess) Color(0xFFE2E8F0) else Color(0xFFCBD5E1),
+            fontSize = 12.sp,
+            lineHeight = 17.sp,
+            fontWeight = FontWeight.Normal
         )
 
-        // 3. Target Control indicator if present
-        if (!targetControlName.isNullOrBlank()) {
-            Spacer(modifier = Modifier.height(5.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(text = "🎯 Target: ", color = Color(0xFF94A3B8), fontSize = 11.sp)
+        // 3. Progress Dots Indicator (4-5 round dots + '1 / 4' count)
+        if (!isGreeting && !isOffline && totalSteps != null && totalSteps > 0) {
+            Spacer(modifier = Modifier.height(10.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Row of rounded progress dots
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val activeIdx = (stepNumber ?: 1) - 1
+                    val maxDots = totalSteps.coerceIn(1, 6)
+                    for (i in 0 until maxDots) {
+                        val isDotActive = i <= activeIdx
+                        Box(
+                            modifier = Modifier
+                                .size(7.dp)
+                                .background(
+                                    color = if (isDotActive) primaryOrange else Color(0xFF3A414D),
+                                    shape = CircleShape
+                                )
+                        )
+                    }
+                }
+
+                // Step count: '1 / 4'
                 Text(
-                    text = targetControlName,
-                    color = Color(0xFF38BDF8),
+                    text = "${stepNumber ?: 1} / $totalSteps",
+                    color = textMuted,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Medium
                 )
             }
         }
 
-        // 4. In-bubble Explanation View (if explanation is active or loading)
+        // 4. In-bubble Contextual Explanation Card (if open)
         if (isExplainBusy || !explanationText.isNullOrBlank()) {
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(10.dp))
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color(0x331E293B), RoundedCornerShape(10.dp))
-                    .border(1.dp, Color(0x446366F1), RoundedCornerShape(10.dp))
+                    .background(surfaceColor, RoundedCornerShape(12.dp))
+                    .border(1.dp, Color(0xFF3E4652), RoundedCornerShape(12.dp))
                     .padding(10.dp)
             ) {
                 Row(
@@ -162,15 +202,21 @@ fun InstructionBubble(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = "💡 Explanation",
-                        color = Color(0xFFC084FC),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(text = "💡", fontSize = 11.sp)
+                        Text(
+                            text = "Concept Explanation",
+                            color = primaryOrange,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                     Text(
                         text = "✕",
-                        color = Color(0xFF94A3B8),
+                        color = textMuted,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier
@@ -179,7 +225,7 @@ fun InstructionBubble(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(5.dp))
 
                 if (isExplainBusy) {
                     Row(
@@ -188,107 +234,165 @@ fun InstructionBubble(
                         modifier = Modifier.padding(vertical = 4.dp)
                     ) {
                         CircularProgressIndicator(
-                            modifier = Modifier.size(14.dp),
-                            color = Color(0xFFC084FC),
+                            modifier = Modifier.size(13.dp),
+                            color = primaryOrange,
                             strokeWidth = 2.dp
                         )
                         Text(
-                            text = "Consulting tutoring knowledge engine...",
-                            color = Color(0xFFCBD5E1),
+                            text = "Querying intelligent Blender knowledge engine...",
+                            color = textMuted,
                             fontSize = 11.sp
                         )
                     }
                 } else if (explanationText != null) {
                     Text(
                         text = explanationText,
-                        color = Color(0xFFE2E8F0),
-                        fontSize = 12.sp,
+                        color = Color(0xFFF1F5F9),
+                        fontSize = 11.5.sp,
                         lineHeight = 16.sp
                     )
                 }
             }
         }
 
-        // 5. Highlight Feedback notification
+        // 5. Highlight Feedback Banner (if active)
         if (!highlightFeedback.isNullOrBlank()) {
             Spacer(modifier = Modifier.height(6.dp))
             Text(
                 text = highlightFeedback,
-                color = if (highlightFeedback.startsWith("✓")) Color(0xFF4ADE80) else Color(0xFFFBBF24),
+                color = if (highlightFeedback.startsWith("✓")) Color(0xFF4ADE80) else Color(0xFFFFA757),
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Medium
             )
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
-        // 6. Action Buttons: Highlight | Explain More | Workspace
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            // Highlight Button
-            Box(
-                modifier = Modifier
-                    .weight(1.1f)
-                    .background(
-                        brush = Brush.horizontalGradient(listOf(Color(0xFF8B5CF6), Color(0xFF6366F1))),
-                        shape = RoundedCornerShape(8.dp)
-                    )
-                    .clickable(enabled = !isHighlightBusy) { onHighlightClick() }
-                    .padding(vertical = 7.dp),
-                contentAlignment = Alignment.Center
+        // 6. Action Buttons Matching the Reference
+        if (isGreeting) {
+            // Stage 1: Application Start (Start a tutorial | Maybe later)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                if (isHighlightBusy) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(12.dp),
-                        color = Color.White,
-                        strokeWidth = 1.5.dp
-                    )
-                } else {
+                Box(
+                    modifier = Modifier
+                        .weight(1.2f)
+                        .background(primaryOrange, RoundedCornerShape(12.dp))
+                        .clickable { onStartTutorialClick() }
+                        .padding(vertical = 8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
                     Text(
-                        text = "✨ Highlight",
+                        text = "Start a tutorial",
                         color = Color.White,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 11.sp
+                        fontSize = 11.5.sp
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .weight(1.0f)
+                        .background(surfaceColor, RoundedCornerShape(12.dp))
+                        .border(1.dp, Color(0xFF3E4652), RoundedCornerShape(12.dp))
+                        .clickable { onDismissExplanation() }
+                        .padding(vertical = 8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "Maybe later",
+                        color = textMuted,
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 11.5.sp
                     )
                 }
             }
-
-            // Explain More Button
+        } else if (isOffline) {
+            // Offline / Disconnected: Retry connection button
             Box(
                 modifier = Modifier
-                    .weight(1.1f)
-                    .background(Color(0x281E293B), RoundedCornerShape(8.dp))
-                    .border(1.dp, Color(0x408B5CF6), RoundedCornerShape(8.dp))
-                    .clickable(enabled = !isExplainBusy) { onExplainClick() }
-                    .padding(vertical = 7.dp),
+                    .fillMaxWidth()
+                    .background(surfaceColor, RoundedCornerShape(12.dp))
+                    .border(1.dp, primaryOrange.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                    .clickable { onHighlightClick() }
+                    .padding(vertical = 8.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = "💬 Explain",
-                    color = Color(0xFFE0E7FF),
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 11.sp
+                    text = "Retry Connection",
+                    color = primaryOrange,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 11.5.sp
                 )
             }
-
-            // Workspace toggle button
-            Box(
-                modifier = Modifier
-                    .weight(0.9f)
-                    .background(Color(0x20334155), RoundedCornerShape(8.dp))
-                    .border(1.dp, Color(0x3364748B), RoundedCornerShape(8.dp))
-                    .clickable { onToggleWorkspace() }
-                    .padding(vertical = 7.dp),
-                contentAlignment = Alignment.Center
+        } else {
+            // Stage 2 & 4: Highlight Action + Explain More Action
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text(
-                    text = if (isWorkspaceOpen) "HUD ▾" else "HUD ▴",
-                    color = Color(0xFF94A3B8),
-                    fontWeight = FontWeight.Medium,
-                    fontSize = 11.sp
-                )
+                // Primary Action Button (Highlight Target)
+                val highlightBtnLabel = if (!targetControlName.isNullOrBlank()) {
+                    "Highlight $targetControlName"
+                } else {
+                    "Highlight target"
+                }
+
+                Box(
+                    modifier = Modifier
+                        .weight(1.3f)
+                        .background(Color(0xFF2B1D15), RoundedCornerShape(12.dp))
+                        .border(1.5.dp, primaryOrange, RoundedCornerShape(12.dp))
+                        .clickable(enabled = !isHighlightBusy) { onHighlightClick() }
+                        .padding(vertical = 8.dp, horizontal = 10.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (isHighlightBusy) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(13.dp),
+                            color = primaryOrange,
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(5.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(text = "🎯", fontSize = 11.sp)
+                            Text(
+                                text = highlightBtnLabel,
+                                color = primaryOrange,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                }
+
+                // Secondary Action Button (Explain More)
+                Box(
+                    modifier = Modifier
+                        .weight(1.0f)
+                        .background(surfaceColor, RoundedCornerShape(12.dp))
+                        .border(1.dp, Color(0xFF3E4652), RoundedCornerShape(12.dp))
+                        .clickable(enabled = !isExplainBusy) { onExplainClick() }
+                        .padding(vertical = 8.dp, horizontal = 10.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(text = "📖", fontSize = 11.sp)
+                        Text(
+                            text = "Explain more",
+                            color = textWhite,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 11.sp
+                        )
+                    }
+                }
             }
         }
     }

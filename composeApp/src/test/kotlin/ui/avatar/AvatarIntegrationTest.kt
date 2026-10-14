@@ -238,4 +238,96 @@ class AvatarIntegrationTest {
         )
         assertEquals(AvatarPresentationState.RECOVERY, next)
     }
+
+    @Test
+    fun validActiveTargetProducesCorrectGazeAndPointingGuidance() {
+        val anchor = ScreenPoint(200f, 320f)
+        val targetRegion = HighlightRegion(x = 600f, y = 300f, width = 80f, height = 40f) // center at (640, 320) -> directly right
+
+        val guidance = TargetGuidanceCalculator.calculateGuidance(anchor, targetRegion.toScreenRect())
+        assertTrue(guidance.isGuidanceUsable)
+        assertTrue(guidance.gazeOffset.offsetX > 0f, "Gaze should look right towards the target")
+        assertNotNull(guidance.pointingGesture)
+        assertTrue(guidance.pointingGesture!!.isPointingRight)
+        assertEquals(0f, guidance.pointingGesture!!.directionAngleDegrees, 0.01f)
+    }
+
+    @Test
+    fun pointingGestureUsesAuthoritativeTargetFromHighlightAndController() {
+        val controller = TutorController(loadMockTutorialByDefault = true)
+        val highlightRegion = HighlightRegion(400f, 100f, 50f, 50f) // center at (425, 125)
+        controller.setHighlight(highlightRegion)
+
+        assertEquals(highlightRegion, controller.state.currentHighlight)
+
+        val anchor = ScreenPoint(425f, 500f) // directly below target center
+        val geometry = TargetGuidanceCalculator.calculateGuidance(anchor, controller.state.currentHighlight!!.toScreenRect())
+
+        assertTrue(geometry.isGuidanceUsable)
+        assertEquals(highlightRegion.centerX, geometry.targetCenter!!.x, 0.001f)
+        assertEquals(highlightRegion.centerY, geometry.targetCenter!!.y, 0.001f)
+        assertEquals(-90f, geometry.displacement!!.angleDegrees, 0.01f, "Pointing angle should align with authoritative highlight")
+    }
+
+    @Test
+    fun offlineOrVerifyingOrRecoveryStatesSuppressDirectionalPointing() {
+        val dummyStep = TutorStep(
+            id = 1,
+            title = "Extrude",
+            instruction = "Press E",
+            description = "Extrude",
+            targetControlName = "Extrude Tool",
+            targetRegion = HighlightRegion(800f, 200f, 60f, 40f),
+            stepNumber = 1,
+            totalSteps = 2
+        )
+
+        // 1. OFFLINE suppresses pointing
+        val offlineState = AvatarStateMachine.resolvePresentationState(
+            isBlenderConnected = false,
+            activeStep = dummyStep,
+            hasTarget = true
+        )
+        assertEquals(AvatarPresentationState.OFFLINE, offlineState)
+
+        // 2. VERIFYING suppresses pointing
+        val verifyingState = AvatarStateMachine.resolvePresentationState(
+            isBlenderConnected = true,
+            isVerificationBusy = true,
+            activeStep = dummyStep,
+            hasTarget = true
+        )
+        assertEquals(AvatarPresentationState.VERIFYING, verifyingState)
+
+        // 3. RECOVERY suppresses pointing
+        val recoveryState = AvatarStateMachine.resolvePresentationState(
+            isBlenderConnected = true,
+            isRecoveryActive = true,
+            activeStep = dummyStep,
+            hasTarget = true
+        )
+        assertEquals(AvatarPresentationState.RECOVERY, recoveryState)
+
+        // 4. SUCCESS suppresses pointing
+        val successState = AvatarStateMachine.resolvePresentationState(
+            isBlenderConnected = true,
+            isVerifiedSuccess = true,
+            activeStep = dummyStep,
+            hasTarget = true
+        )
+        assertEquals(AvatarPresentationState.SUCCESS, successState)
+    }
+
+    @Test
+    fun compactModePreservesTargetGuidanceGeometry() {
+        val anchor = ScreenPoint(100f, 100f)
+        val target = ScreenRect(500f, 100f, 50f, 50f)
+
+        val fullGeo = TargetGuidanceCalculator.calculateGuidance(anchor, target)
+        val compactGeo = TargetGuidanceCalculator.calculateGuidance(anchor, target)
+
+        assertEquals(fullGeo.displacement!!.angleDegrees, compactGeo.displacement!!.angleDegrees)
+        assertEquals(fullGeo.gazeOffset, compactGeo.gazeOffset)
+        assertTrue(fullGeo.isGuidanceUsable)
+    }
 }

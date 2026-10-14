@@ -107,9 +107,49 @@ AI Visual Tutor is an intelligent Windows desktop application built with Kotlin,
 ### Prerequisites
 
 * **Operating System:** Windows 10 (build 19041+) or Windows 11 (x64)
-* **Java Development Kit:** JDK 17 (Microsoft Build of OpenJDK 17 recommended)
+* **Java Development Kit:** JDK 17 (Microsoft Build of OpenJDK 17 or Eclipse Adoptium Temurin 17 recommended)
 * **.NET Runtime:** .NET 10 SDK (for the Windows Graphics Capture bridge)
-* **Blender (Optional for live verification):** Blender 3.0+ (Blender 5.2.2 LTS tested)
+* **Blender:** Blender 4.0+ (Blender 5.2.2 LTS verified)
+
+### Blender API Connection & Integration Setup
+
+The AI Visual Tutor connects directly to Blender via an embedded, non-blocking state adapter add-on over local loopback (`127.0.0.1:47629`).
+
+#### 1. Add-on Location & Installation
+The add-on package is located at `blender/ai_visual_tutor_state/`. To install it in Blender 5.2 (or 4.x):
+```powershell
+$blenderVersion = "5.2"  # or your installed version (e.g. 4.2, 4.0)
+$dest = "$env:APPDATA\Blender Foundation\Blender\$blenderVersion\scripts\addons\ai_visual_tutor_state"
+New-Item -ItemType Directory -Force -Path $dest
+Copy-Item -Path "blender\ai_visual_tutor_state\*" -Destination $dest -Recurse -Force
+```
+
+#### 2. Enable the Add-on in Blender
+- **Option A (GUI)**: In Blender, go to **Edit** > **Preferences** > **Add-ons** (or **Legacy Add-ons** in 4.2+), search for **AI Visual Tutor State Adapter**, and enable the checkbox.
+- **Option B (Python Console)**: In Blender's Python console workspace, run:
+  ```python
+  import addon_utils; addon_utils.enable("ai_visual_tutor_state", default_set=True)
+  import bpy; bpy.ops.wm.save_userpref()
+  ```
+
+#### 3. Communication Bridge Protocols
+Once enabled, Blender listens on `127.0.0.1:47629` using `SO_REUSEADDR`:
+* **HTTP REST API (v1 Schema)**:
+  - `GET /api/v1/health`: Session status, version, and active scene.
+  - `GET /api/v1/snapshot`: Complete JSON scene graph snapshot (objects, transforms, active mode, active object, selection).
+  - `GET /api/v1/version`: Lightweight sequence tracking (`snapshotVersion`, `eventCounter`, `activeMode`, `selectedCount`).
+  - `GET /api/v1/close`: Graceful session disconnection.
+* **Raw TCP Streaming**:
+  - `AIVT_STATE_V1` TSV snapshot streaming for low-latency Kotlin socket observations.
+* **Real-time Event Tracking**:
+  - Viewport transform timer polling interactive transformations (`G`, `R`, `S`) every 0.1s.
+  - Dependency graph hooks (`depsgraph_update_post` and `load_post`) for scene graph mutations.
+
+#### 4. Automatic Connection & Avatar Feedback
+When both Blender and the tutor desktop application are running:
+* Telemetry queries `127.0.0.1:47629` every 2.5 seconds.
+* The header status badge indicates `● Blender connected (port 47629)` in green.
+* The robot avatar wakes up from `OFFLINE` (sleeping) to `IDLE` (warm glowing amber eyes) with target-aware gaze and pointing.
 
 ### Installation & Execution
 
@@ -128,7 +168,7 @@ AI Visual Tutor is an intelligent Windows desktop application built with Kotlin,
    # Google Gemini API Key
    GEMINI_API_KEY=your_gemini_api_key_here
    ```
-   *Note: If no keys are provided, the tutor runs in local offline mode using built-in deterministic pedagogical rules.*
+   *Note: If no keys are provided, the tutor runs in local offline mode using built-in deterministic pedagogical rules. No API key is required for Blender.*
 
 3. **Run the Application:**
    ```powershell

@@ -27,8 +27,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
@@ -52,8 +55,9 @@ import tutor.TutorController
  * - Transparent native window beside Blender.
  * - Authoritative state reflection from [TutorController].
  * - Real target grounding via [OverlayManager] and [tutor.DynamicTargetPositioningService].
+ * - Target-aware dynamic gaze and articulated pointing gestures via [TargetGuidanceCalculator].
  * - Contextual explanations via [SmartChatbotProvider].
- * - Fluid drag-to-reposition across multi-monitor setups.
+ * - Fluid drag-to-reposition across multi-monitor setups with dynamic coordinate tracking.
  * - Smooth toggling between Compact dock pill and Expanded bubble.
  */
 @Composable
@@ -68,7 +72,7 @@ fun AvatarWindow(
     onCloseRequest: () -> Unit = {},
     windowState: WindowState = rememberWindowState(
         position = WindowPosition(x = 100.dp, y = 100.dp),
-        size = DpSize(420.dp, 230.dp)
+        size = DpSize(440.dp, 260.dp)
     )
 ) {
     val coroutineScope = rememberCoroutineScope()
@@ -83,8 +87,8 @@ fun AvatarWindow(
     var isRecoveryActive by remember { mutableStateOf(false) }
 
     // Dynamic window resizing based on presentation mode
-    val expandedSize = DpSize(420.dp, 240.dp)
-    val compactSize = DpSize(180.dp, 58.dp)
+    val expandedSize = DpSize(440.dp, 260.dp)
+    val compactSize = DpSize(190.dp, 60.dp)
 
     LaunchedEffect(isCompact) {
         windowState.size = if (isCompact) compactSize else expandedSize
@@ -115,10 +119,13 @@ fun AvatarWindow(
     }
 
     // Determine target presence for pointing
-    val hasTarget = step?.targetControlName != null ||
-        step?.targetRegion != null ||
-        state.currentHighlight != null ||
-        overlayManager.activeHighlightRegion != null
+    val activeTargetRegion = overlayManager.activeHighlightRegion
+        ?: state.currentHighlight
+        ?: step?.targetRegion
+
+    val hasTarget = activeTargetRegion != null &&
+        activeTargetRegion.width > 0f &&
+        activeTargetRegion.height > 0f
 
     // Determine transient verified success (showing for 3.5s after verified success)
     var isShowingSuccess by remember { mutableStateOf(false) }
@@ -143,6 +150,49 @@ fun AvatarWindow(
         hasTarget = hasTarget
     )
 
+    // Dynamic Window Screen Position tracking for multi-monitor / drag coordinate math
+    var windowScreenX by remember { mutableStateOf(windowState.position.x.value) }
+    var windowScreenY by remember { mutableStateOf(windowState.position.y.value) }
+    var avatarVisorLocalOffset by remember { mutableStateOf(Offset(54f, 46f)) }
+
+    // Calculate dynamic anchor point of the robot's visor on the desktop
+    val robotVisorScreenPoint = ScreenPoint(
+        x = windowScreenX + avatarVisorLocalOffset.x,
+        y = windowScreenY + avatarVisorLocalOffset.y
+    )
+
+    // Compute target-aware guidance geometry (Phase 3A)
+    val guidanceGeometry = remember(robotVisorScreenPoint, activeTargetRegion) {
+        if (activeTargetRegion != null && activeTargetRegion.width > 0f && activeTargetRegion.height > 0f) {
+            TargetGuidanceCalculator.calculateGuidance(
+                anchor = robotVisorScreenPoint,
+                targetBounds = activeTargetRegion.toScreenRect()
+            )
+        } else {
+            TargetGuidanceGeometry.neutral(robotVisorScreenPoint)
+        }
+    }
+
+    // Directional guidance activation guard (Phase 3D)
+    val isDirectionalGuidancePermitted = (presentationState == AvatarPresentationState.POINTING ||
+        presentationState == AvatarPresentationState.GUIDING ||
+        presentationState == AvatarPresentationState.WAITING_FOR_USER) &&
+        isBlenderConnected &&
+        !isVerificationBusy
+
+    val guidanceTarget = if (guidanceGeometry.isGuidanceUsable && isDirectionalGuidancePermitted) {
+        AvatarGuidanceTarget(
+            gazeOffsetX = guidanceGeometry.gazeOffset.offsetX,
+            gazeOffsetY = guidanceGeometry.gazeOffset.offsetY,
+            pointingAngleRadians = guidanceGeometry.pointingGesture?.directionAngleRadians,
+            isPointingActive = presentationState == AvatarPresentationState.POINTING || (hasTarget && presentationState == AvatarPresentationState.GUIDING),
+            isPointingRight = guidanceGeometry.pointingGesture?.isPointingRight ?: true,
+            distance = guidanceGeometry.distance
+        )
+    } else {
+        null
+    }
+
     Window(
         onCloseRequest = onCloseRequest,
         state = windowState,
@@ -153,7 +203,7 @@ fun AvatarWindow(
         alwaysOnTop = true,
         visible = visible
     ) {
-        // Enforce transparent alpha background on native AWT container
+        // Enforce transparent alpha background on native AWT container and track window moves
         LaunchedEffect(window) {
             try {
                 window.background = java.awt.Color(0, 0, 0, 0)
@@ -162,6 +212,20 @@ fun AvatarWindow(
                 window.rootPane.isOpaque = false
                 window.rootPane.background = java.awt.Color(0, 0, 0, 0)
             } catch (_: Exception) {}
+
+            val listener = object : java.awt.event.ComponentAdapter() {
+                override fun componentMoved(e: java.awt.event.ComponentEvent) {
+                    windowScreenX = window.x.toFloat()
+                    windowScreenY = window.y.toFloat()
+                }
+                override fun componentResized(e: java.awt.event.ComponentEvent) {
+                    windowScreenX = window.x.toFloat()
+                    windowScreenY = window.y.toFloat()
+                }
+            }
+            window.addComponentListener(listener)
+            windowScreenX = window.x.toFloat()
+            windowScreenY = window.y.toFloat()
         }
 
         Box(
@@ -171,7 +235,7 @@ fun AvatarWindow(
         ) {
             if (isCompact) {
                 // ==========================================
-                // COMPACT DOCK PRESENTATION
+                // COMPACT DOCK PRESENTATION (Reference Matched)
                 // ==========================================
                 WindowDraggableArea {
                     Box(
@@ -179,40 +243,68 @@ fun AvatarWindow(
                             .fillMaxSize()
                             .padding(3.dp)
                             .background(
-                                color = Color(0xF0101424),
+                                color = Color(0xF21E2127),
                                 shape = RoundedCornerShape(18.dp)
                             )
                             .border(
                                 width = 1.dp,
-                                brush = Brush.linearGradient(
-                                    listOf(Color(0x888B5CF6), Color(0x4438BDF8), Color(0x22FFFFFF))
-                                ),
+                                color = Color(0xFF2D323B),
                                 shape = RoundedCornerShape(18.dp)
                             )
                             .clickable { isCompact = false }
-                            .padding(horizontal = 10.dp),
+                            .padding(horizontal = 12.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Row(
+                            modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            AvatarView(
-                                state = AvatarPresentationState.COMPACT,
-                                size = 32.dp
-                            )
-                            Column {
-                                Text(
-                                    text = "AI Visual Tutor",
-                                    color = Color.White,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 11.sp
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                AvatarView(
+                                    state = AvatarPresentationState.COMPACT,
+                                    size = 32.dp,
+                                    guidanceTarget = guidanceTarget,
+                                    modifier = Modifier.onGloballyPositioned { layoutCoordinates ->
+                                        val pos = layoutCoordinates.positionInWindow()
+                                        val sz = layoutCoordinates.size
+                                        avatarVisorLocalOffset = Offset(
+                                            pos.x + sz.width / 2f,
+                                            pos.y + sz.height * 0.42f
+                                        )
+                                    }
                                 )
+                                Column {
+                                    Text(
+                                        text = "AI Visual Tutor",
+                                        color = Color(0xFFF1F5F9),
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 11.sp
+                                    )
+                                    Text(
+                                        text = if (isBlenderConnected) "● Connected" else "● Disconnected",
+                                        color = if (isBlenderConnected) Color(0xFF22C55E) else Color(0xFFEF4444),
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                            }
+
+                            // Reopen affordance
+                            Box(
+                                modifier = Modifier
+                                    .size(18.dp)
+                                    .background(Color(0xFF282F38), CircleShape)
+                                    .clickable { isCompact = false },
+                                contentAlignment = Alignment.Center
+                            ) {
                                 Text(
-                                    text = presentationState.defaultStatusLabel,
-                                    color = if (isBlenderConnected) Color(0xFF38BDF8) else Color(0xFFEF4444),
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Medium
+                                    text = "▲",
+                                    color = Color(0xFF8A94A6),
+                                    fontSize = 9.sp
                                 )
                             }
                         }
@@ -237,7 +329,16 @@ fun AvatarWindow(
                         ) {
                             AvatarView(
                                 state = presentationState,
-                                size = 96.dp
+                                size = 96.dp,
+                                guidanceTarget = guidanceTarget,
+                                modifier = Modifier.onGloballyPositioned { layoutCoordinates ->
+                                    val pos = layoutCoordinates.positionInWindow()
+                                    val sz = layoutCoordinates.size
+                                    avatarVisorLocalOffset = Offset(
+                                        pos.x + sz.width / 2f,
+                                        pos.y + sz.height * 0.42f
+                                    )
+                                }
                             )
 
                             // Minimize to Compact Dock chip
@@ -348,30 +449,30 @@ fun AvatarWindow(
                                             return@launch
                                         }
                                         isExplainBusy = true
+                                        explanationText = null
                                         try {
-                                            val hint = controller.requestHint()
-                                            if (!hint.isNullOrBlank()) {
-                                                explanationText = hint
-                                            } else {
-                                                val context = contextBuilder.buildContext(
-                                                    question = "Explain how to perform '${step.instruction}' and why it is important in Blender.",
-                                                    controller = controller
-                                                )
-                                                val response = chatbotProvider.askTutor(context)
-                                                explanationText = response.replyText
+                                            val query = "Explain step: ${step.title}. ${step.instruction}"
+                                            val chatContext = contextBuilder.buildContext(
+                                                question = query,
+                                                controller = controller
+                                            )
+                                            val response = chatbotProvider.askTutor(chatContext)
+                                            explanationText = response.replyText.ifBlank {
+                                                response.explanation ?: "Focus on: ${step.instruction}\nLook for the highlighted control in Blender."
                                             }
                                         } catch (ex: Exception) {
-                                            explanationText = "Concept: ${step.description}\nHint: ${step.conceptualHint ?: "Follow the indicated action in Blender."}"
+                                            explanationText = "Explanation temporarily unavailable (${ex.message}). Follow the instruction: ${step.instruction}"
                                         } finally {
                                             isExplainBusy = false
                                         }
                                     }
                                 },
-                                onDismissExplanation = {
-                                    explanationText = null
-                                },
                                 onToggleWorkspace = onToggleWorkspace,
-                                isWorkspaceOpen = isWorkspaceOpen
+                                isWorkspaceOpen = isWorkspaceOpen,
+                                onDismissExplanation = { explanationText = null },
+                                onStartTutorialClick = {
+                                    controller.goToStep(0)
+                                }
                             )
                         }
                     }

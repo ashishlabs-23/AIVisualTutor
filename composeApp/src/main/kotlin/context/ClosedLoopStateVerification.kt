@@ -392,6 +392,21 @@ fun evaluatePropertyCondition(observedValue: String, expectedSpec: String): Bool
     return trimmedObs.equals(trimmedSpec, ignoreCase = true)
 }
 
+data class WorkflowRequirement(
+    val id: String,
+    val description: String,
+    val expectedState: ExpectedState? = null,
+    val isMandatory: Boolean = true,
+    val targetingStepIds: List<String> = emptyList()
+)
+
+data class WorkflowVerificationResult(
+    val isComplete: Boolean,
+    val satisfiedRequirementIds: List<String>,
+    val unsatisfiedRequirementIds: List<String>,
+    val explanation: String
+)
+
 class StateVerifier {
     fun validate(expected: ExpectedState): List<String> = expected.validate()
 
@@ -423,6 +438,42 @@ class StateVerifier {
             }
         }
         return true
+    }
+
+    fun verifyWorkflow(
+        requirements: List<WorkflowRequirement>,
+        observed: ObservedState,
+        completedStepIds: Set<String>
+    ): WorkflowVerificationResult {
+        val satisfied = mutableListOf<String>()
+        val unsatisfied = mutableListOf<String>()
+
+        for (req in requirements) {
+            if (!req.isMandatory) continue
+
+            val stateMatches = req.expectedState?.let { matchesExpectedState(it, observed) }
+            val stepsDone = req.targetingStepIds.isEmpty() || req.targetingStepIds.all { it in completedStepIds }
+
+            if (stateMatches == false || !stepsDone) {
+                unsatisfied.add(req.id)
+            } else {
+                satisfied.add(req.id)
+            }
+        }
+
+        val isComplete = unsatisfied.isEmpty()
+        val explanation = if (isComplete) {
+            "Workflow verified: All ${satisfied.size} mandatory requirements satisfied."
+        } else {
+            "Workflow incomplete: ${unsatisfied.size} mandatory requirement(s) unsatisfied (${unsatisfied.joinToString()})."
+        }
+
+        return WorkflowVerificationResult(
+            isComplete = isComplete,
+            satisfiedRequirementIds = satisfied,
+            unsatisfiedRequirementIds = unsatisfied,
+            explanation = explanation
+        )
     }
 
     fun verify(
@@ -765,16 +816,28 @@ class StateVerifier {
                     !isCompleteForExpectedScope(observed, expected)
                 ) return null
                 val target = after.singleOrNull() ?: return if (after.size > 1) null else false
-                val id = target.id?.takeIf(String::isNotBlank) ?: return null
-                val identityMatches = beforeObjects.filter { it.id == id }
-                if (identityMatches.isEmpty()) return false
-                if (identityMatches.size != 1) return null
-                val original = identityMatches.single()
-                when {
-                    original.name.isNullOrBlank() -> null
-                    original.name.equals(target.name, ignoreCase = true) -> false
-                    original.type != null && target.type != null && !original.type.equals(target.type, ignoreCase = true) -> false
-                    else -> true
+                val id = target.id?.takeIf(String::isNotBlank)
+                if (id != null) {
+                    val identityMatches = beforeObjects.filter { it.id == id }
+                    if (identityMatches.isEmpty()) return false
+                    if (identityMatches.size != 1) return null
+                    val original = identityMatches.single()
+                    when {
+                        original.name.isNullOrBlank() -> null
+                        original.name.equals(target.name, ignoreCase = true) -> false
+                        original.type != null && target.type != null && !original.type.equals(target.type, ignoreCase = true) -> false
+                        else -> true
+                    }
+                } else {
+                    val oldName = expected.expectedPropertyValue
+                    if (!oldName.isNullOrBlank()) {
+                        val beforeHadOld = beforeObjects.any { objectMatchesName(it, oldName) }
+                        val afterHasOld = afterObjects.any { objectMatchesName(it, oldName) }
+                        beforeHadOld && !afterHasOld
+                    } else {
+                        val beforeMatches = beforeObjects.filter { it.type.equals(target.type, ignoreCase = true) }
+                        beforeMatches.size == 1 && !beforeMatches[0].name.equals(target.name, ignoreCase = true)
+                    }
                 }
             }
             VerificationOperation.SELECT -> {

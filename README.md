@@ -37,6 +37,17 @@ AI Visual Tutor is an intelligent Windows desktop application built with Kotlin,
   * Authoritative multi-modal evidence reconciliation: ground-truth application facts take precedence over visual/OCR inferences, and stale or out-of-order snapshots are rejected.
   * Continuous background auto-verification tracking learner progress in real time.
 
+* **Blender Action Semantics & Evidence-Grounded Verification Hardening (Phase 11):**
+  * Authoritative verification across `ROTATE`, `DELETE`, `MOVE`, `SCALE`, `CREATE`, `SELECT`, and `RENAME`.
+  * Complete false-positive elimination for 3D orientation (e.g. upside-down cube) using 3D Euler coordinate analysis ($\cos\alpha\cos\beta \le -0.5$) rather than naive tool selection or generic delta checks.
+  * Robust delete verification guaranteeing that the intended target existed prior to deletion and is absent post-action, preventing deselection or hiding from falsely passing.
+  * Safe baseline lifecycle preservation preventing retry attempts from overwriting pre-action states.
+
+* **Workflow Intelligence & Multi-Step Task Verification (Phase 12):**
+  * Multi-step workflow planning across compound modeling goals (Create, Move, Scale, Rotate, Rename, Delete with preservation).
+  * Dependency-aware step progression ensuring dependent steps remain blocked until prerequisites are verified.
+  * Decoupled step-level vs workflow-level verification ensuring all mandatory outcomes must be satisfied in the active Blender scene before final goal completion.
+
 * **Universal Screen Capture Bridge:**
   * High-performance .NET 10 Windows Graphics Capture (WGC) bridge and frozen-snapshot multi-monitor region selector (`Ctrl+Alt+F12` and `Ctrl+Shift+Space`).
 
@@ -156,7 +167,7 @@ AI Visual Tutor is an intelligent Windows desktop application built with Kotlin,
 
 ## Project Documentation & Phase Roadmap
 
-For each phase of development, refer to its single comprehensive documentation file in `docs/`:
+For each phase of development, refer to its comprehensive documentation file:
 
 * [docs/PHASE_0.md](docs/PHASE_0.md) — Research Questions, Empirical Methodology, and Evaluation Framework
 * [docs/PHASE_1.md](docs/PHASE_1.md) — Core Tutor Panel, Floating Dock, and Transparent Click-Through Overlay
@@ -167,8 +178,12 @@ For each phase of development, refer to its single comprehensive documentation f
 * [docs/PHASE_6.md](docs/PHASE_6.md) — Closed-Loop State Verification and Initial Loopback TCP Provider
 * [docs/PHASE_7.md](docs/PHASE_7.md) — Adaptive Pedagogical Engine, Pedagogical Fading, and Scaffolding Recovery
 * [docs/PHASE_8.md](docs/PHASE_8.md) — Application Adapters, Deep Blender Integration, Evidence Provenance, and Real-Time State Verification
+* [validation/phase-9/LIVE_VISUAL_ACCEPTANCE_REPORT.md](validation/phase-9/LIVE_VISUAL_ACCEPTANCE_REPORT.md) — Phase 9: Live Visual Acceptance and 3D Highlighting Reliability
+* [validation/phase-10/EVIDENCE_ADAPTIVE_TUTORING_REPORT.md](validation/phase-10/EVIDENCE_ADAPTIVE_TUTORING_REPORT.md) — Phase 10: Evidence-Adaptive Visual Tutoring & Closed-Loop Adaptation
+* [PHASE_11_BLENDER_VERIFICATION_REPORT.md](PHASE_11_BLENDER_VERIFICATION_REPORT.md) — Phase 11: Blender Action Semantics & Evidence-Grounded Verification Hardening
 
 Technical Remediation & Quality Audits:
+* [validation/blender-sync/UNIVERSAL_VERIFY_BUTTON_REPORT.md](validation/blender-sync/UNIVERSAL_VERIFY_BUTTON_REPORT.md) — Universal Verify and State Synchronization Audit
 * [docs/remediation/chat-and-provider-audit.md](docs/remediation/chat-and-provider-audit.md) — Provider Discovery, Groq API, and Config Audit
 * [docs/remediation/stuck-and-glow-validation.md](docs/remediation/stuck-and-glow-validation.md) — State Mismatch Diagnosis & Dynamic Overlay Validation
 * [docs/remediation/feature-status.md](docs/remediation/feature-status.md) — Full Architectural Feature Implementation Status Matrix

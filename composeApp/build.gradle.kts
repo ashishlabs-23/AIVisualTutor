@@ -173,3 +173,10 @@ tasks.register<JavaExec>("runPhase5Evaluation") {
         setArgs(listOf("--annotations", annotations, report))
     }
 }
+
+tasks.register<JavaExec>("runNativeWindowProof") {
+    group = "verification"
+    description = "Runs the Phase 1 native transparent window and avatar prototype."
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("ui.avatar.NativeWindowProofKt")
+}

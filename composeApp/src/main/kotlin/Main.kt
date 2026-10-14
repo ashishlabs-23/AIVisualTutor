@@ -28,6 +28,7 @@ import tutor.TutorController
 import ui.ScreenshotPreviewWindow
 import ui.TutorDock
 import ui.TutorPanel
+import ui.avatar.AvatarWindow
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.Paths
@@ -106,6 +107,21 @@ fun main() {
     var groundingApplicationContext by remember { mutableStateOf<ApplicationContext?>(null) }
     var groundingDesktopRegion by remember { mutableStateOf<Rectangle?>(null) }
     var previewExperimentCaseId by remember { mutableStateOf("PREVIEW_${UUID.randomUUID()}") }
+    var isAvatarVisible by remember { mutableStateOf(true) }
+    var isBlenderConnected by remember { mutableStateOf(false) }
+
+    LaunchedEffect(blenderVerificationWorkflow) {
+        while (true) {
+            val connected = try {
+                val obs = blenderVerificationWorkflow.provider.observe()
+                obs.status == context.BlenderObservationStatus.AVAILABLE
+            } catch (_: Exception) {
+                false
+            }
+            isBlenderConnected = connected
+            delay(2500)
+        }
+    }
 
     fun captureBlenderBaseline(expected: ExpectedState) {
         previewScope.launch {
@@ -346,11 +362,29 @@ fun main() {
         mainWindowState.size = if (isPanelExpanded) panelSize else dockSize
     }
 
+    val avatarInitialX = (initialX - 440.dp).coerceAtLeast(20.dp)
+    val avatarWindowState = rememberWindowState(
+        position = WindowPosition(x = avatarInitialX, y = initialY),
+        size = DpSize(420.dp, 240.dp)
+    )
+
+    AvatarWindow(
+        controller = controller,
+        overlayManager = overlayManager,
+        isBlenderConnected = isBlenderConnected,
+        isVerificationBusy = isBlenderVerificationBusy,
+        visible = isTutorWindowsVisible && isAvatarVisible,
+        isWorkspaceOpen = isPanelExpanded,
+        onToggleWorkspace = { isPanelExpanded = !isPanelExpanded },
+        onCloseRequest = { isAvatarVisible = false },
+        windowState = avatarWindowState
+    )
+
     Window(
         onCloseRequest = ::exitApplication,
         state = mainWindowState,
         title = "AI Visual Tutor",
-        visible = isTutorWindowsVisible,
+        visible = isTutorWindowsVisible && (isPanelExpanded || !isAvatarVisible),
         undecorated = true,
         transparent = true,
         resizable = false,

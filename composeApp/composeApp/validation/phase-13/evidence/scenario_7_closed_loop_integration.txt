@@ -1,0 +1,7 @@
+=== SCENARIO 7: CLOSED-LOOP TUTORING INTEGRATION ===
+Timestamp: 2026-10-14T10:08:02.570434500Z
+Initial Step Index: 0, Initial Plan Version: 1
+After Verification Success: StepIndex=1, GuidanceStage=STAGE_1_EXACT_GUIDANCE
+Learner Total Verified: 1
+Learner Demonstrated Skills: [blender.primitives]
+After Replan: PlanVersion=2, CurrentStepIndex=0

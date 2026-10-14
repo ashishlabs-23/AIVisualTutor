@@ -1,44 +1,50 @@
-========================================================================
-GRADLE TEST EXECUTION RESULTS
-========================================================================
-Test Run Time: 2026-10-13 23:54 IST
-JDK: OpenJDK 64-Bit Server VM (17.0.20+8) Eclipse Adoptium
-Blender Version: 5.2.2 LTS (D:\blender.exe)
+===============================================================================
+AIVisualTutor Automated Test Suite Results
+Date: 2026-10-14
+Platform: Windows (PowerShell / Gradle 8.9 / Kotlin 2.0.0 / JVM 17)
+===============================================================================
 
-------------------------------------------------------------------------
-1. Live Blender Integration Diagnostic Tests
-------------------------------------------------------------------------
-Test: bridge.LiveProductionVerificationDiagnosticTest
-- testFullProductionWorkflowWithLiveBlender: PASSED
-- testLiveNavigationDirectlyToStep3AutoReconcilesPrerequisites: PASSED
+Overall Summary:
+  Total Tests:    645
+  Passed:         640
+  Failures:         0
+  Errors:           0
+  Skipped:          5
+  Pass Rate:     100.0%
 
-Result: 2/2 tests PASSED
+Dedicated Regression Suite:
+  Suite: bridge.UniversalVerifyAndStateSyncRegressionTest
+  Tests Executed: 18
+  Passed:         18
+  Failures:        0
+  Errors:          0
 
-------------------------------------------------------------------------
-2. Regression Test Suite
-------------------------------------------------------------------------
-Test: bridge.BlenderSyncRegressionTest
-- test1_sphereAlreadyExists_verifiedSuccessfully: PASSED
-- test2_numberedDuplicateSphere_matchesAndVerifiesSuccessfully: PASSED
-- test3_baselineCaptureAfterSphereCreation_recoversViaPreCreationBaseline: PASSED
-- test4_providerFailure_doesNotMistakeForEmptySceneAndAllowsRetry: PASSED
-- test5_prerequisiteStateConsistency_uiAndAuthoritativeTrackerAgree: PASSED
-- test6_staleAsyncResponse_rejectedByVersionEpoch: PASSED
-- test7_retryExhaustion_recommendsSpecificCorrection: PASSED
-- test8_multipleSpheres_validatesCleanly: PASSED
-- test9_endToEndCreationProgression_satisfiesMandatoryOutcomes: PASSED
-- test10_stateProviderTelemetryContract_fieldsParsedCorrectly: PASSED
+  Test 1:  test1_verifyButtonOnFirstStep_isCallableAndVerifies                 [PASSED] [FIDELITY: COMPONENT]
+  Test 2:  test2_verifyButtonAfterSuccess_nextStepExposesVerifyAndClearsStaleBubble [PASSED] [FIDELITY: COMPONENT]
+  Test 3:  test3_verifyButtonAfterFailure_controlRemainsAvailable              [PASSED] [FIDELITY: COMPONENT]
+  Test 4:  test4_verifyButtonAfterRetryExhaustion_recoveryExplicitAndResetSupported [PASSED] [FIDELITY: COMPONENT]
+  Test 5:  test5_verifyButtonAfterNavigation_previousAndNextPreserveStateCorrectly [PASSED] [FIDELITY: COMPONENT]
+  Test 6:  test6_verifyButtonForInformationalSteps_completesHonestInformationalContract [PASSED] [FIDELITY: COMPONENT]
+  Test 7:  test7_objectCreation_freshProviderObservationDetectsCreatedObject   [PASSED] [FIDELITY: SIMULATED_INTEGRATION]
+  Test 8:  test8_objectDeletion_freshObservationDetectsIntendedObjectIsAbsent  [PASSED] [FIDELITY: SIMULATED_INTEGRATION]
+  Test 9:  test9_activeObjectPlaceholder_resolvesToCorrectObjectIdentityNotLiteralName [PASSED] [FIDELITY: COMPONENT]
+  Test 10: test10_providerFailure_failedStateRequestIsNotInterpretedAsEmptyScene [PASSED] [FIDELITY: UNIT]
+  Test 11: test11_staleObservation_rejectedByReconciler                        [PASSED] [FIDELITY: UNIT]
+  Test 12: test12_retryRecovery_allowedNewAttemptUsesFreshEvidence             [PASSED] [FIDELITY: SIMULATED_INTEGRATION]
+  Test 13: test13_prerequisiteConsistency_displayedCheckmarksAndAuthoritativeTrackingAgree [PASSED] [FIDELITY: COMPONENT]
+  Test 14: test14_uiSynchronization_successfulVerificationRefreshesUIWithoutRestarting [PASSED] [FIDELITY: COMPONENT]
+  Test 15: test15_duplicateClicks_doNotTriggerConcurrentVerificationRequests   [PASSED] [FIDELITY: COMPONENT]
+  Test 16: test16_taskIdentity_resultFromOldPlanCannotCompleteStepInNewPlan    [PASSED] [FIDELITY: COMPONENT]
+  Test 17: test17_creationDeletionSemantics_noInappropriateCreationDeltaForDeletion [PASSED] [FIDELITY: UNIT]
+  Test 18: test18_realErrorVisibility_providerExceptionRemainsDistinguishableFromMismatch [PASSED] [FIDELITY: UNIT]
 
-Result: 10/10 tests PASSED
-
-------------------------------------------------------------------------
-3. Full Project Test Suite Summary (.\gradlew.bat test)
-------------------------------------------------------------------------
-Total Tests Executed: 627
-Failures: 0
-Errors: 0
-Ignored/Skipped: 15 (optional external API tests requiring remote cloud credentials)
-Success Rate: 100%
-Execution Duration: 1m 31.69s
-BUILD STATUS: SUCCESSFUL
-========================================================================
+Live Integration Tests:
+  Suite: adapter.LiveBlenderPhase8IntegrationTest
+  Tests Executed: 4
+  Passed:         4
+  Failures:        0
+  Errors:          0
+  - testPhase8HttpHealthAndVersionedSnapshot                                  [PASSED] [FIDELITY: LIVE_INTEGRATION]
+  - testPhase8ObjectCreation                                                  [PASSED] [FIDELITY: LIVE_INTEGRATION]
+  - testPhase8ObjectRenamingWithStableIdentity                                [PASSED] [FIDELITY: LIVE_INTEGRATION]
+  - testPhase8ObjectDeletion                                                  [PASSED] [FIDELITY: LIVE_INTEGRATION]

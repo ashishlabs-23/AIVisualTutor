@@ -480,8 +480,8 @@ fun main() {
 
     if (overlayManager.isOverlayVisible) {
         val currentStep = controller.stepsForCurrentApp().getOrNull(controller.state.currentStepIndex)
-        val resolvedRegion = overlayManager.activeHighlightRegion
-            ?: controller.state.currentHighlight
+        val resolvedRegion = controller.state.currentHighlight
+            ?: overlayManager.activeHighlightRegion
             ?: controller.state.adaptiveInstruction?.targetRegion
             ?: currentStep?.targetRegion
         val resolvedTitle = controller.state.adaptiveInstruction?.targetControlName

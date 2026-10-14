@@ -10,6 +10,8 @@ import models.TutorStep
  * Origin of the localized target highlight.
  */
 enum class TargetLocalizationSource {
+    /** Resolved via 3D object projection from Blender's active viewport. */
+    BLENDER_3D_PROJECTION,
     /** Resolved deterministically via Windows UI Automation element tree. */
     UI_AUTOMATION,
     /** Resolved via optical character recognition match on rendered window/screen text. */
@@ -38,6 +40,7 @@ data class TargetPositionResult(
 /**
  * Service implementing layered target-location strategy:
  * Target description + Active application
+ *   -> 0. Blender 3D Object Projection (when targeting scene objects in Blender)
  *   -> 1. UI Automation
  *   -> 2. OCR matching
  *   -> 3. Visual grounding via RegionFocus sub-cropping
@@ -49,14 +52,168 @@ class DynamicTargetPositioningService(
     private val ocrService: OCRService? = null,
     private val groundingRouter: EvidenceAdaptiveGroundingRouter? = null,
     private val regionFocusService: RegionFocusService = RegionFocusService(),
-    private val dpiNormalizer: DpiCoordinateNormalizer = DpiCoordinateNormalizer()
+    private val dpiNormalizer: DpiCoordinateNormalizer = DpiCoordinateNormalizer(),
+    private val blenderAdapter: adapter.BlenderApplicationAdapter? = null
 ) {
+
+    /**
+     * Identifies whether the active step targets an actual 3D scene object (e.g. Cube, Sphere).
+     */
+    fun identifyTargetObject(step: TutorStep): String? {
+        val expTarget = step.expectedState?.targetName?.trim().orEmpty()
+        if (expTarget.isNotEmpty() && !isUiControlName(expTarget)) {
+            return expTarget
+        }
+        val reqObj = step.expectedState?.requiredConditions
+            ?.mapNotNull { it.objectName?.trim() }
+            ?.firstOrNull { it.isNotBlank() && !isUiControlName(it) }
+        if (reqObj != null) {
+            return reqObj
+        }
+        val ctrlName = step.targetControlName?.trim().orEmpty()
+        if (ctrlName.isNotEmpty() && isLikelySceneObjectName(ctrlName)) {
+            return ctrlName
+        }
+        val normTitle = step.title.lowercase()
+        return when {
+            normTitle.contains("cube") -> "Cube"
+            normTitle.contains("sphere") -> "Sphere"
+            normTitle.contains("camera") -> "Camera"
+            normTitle.contains("light") -> "Light"
+            else -> null
+        }
+    }
+
+    private fun isUiControlName(name: String): Boolean {
+        val n = name.lowercase().trim()
+        return n in setOf(
+            "mode", "object mode", "edit mode", "render", "render image",
+            "material properties", "material", "transform", "location",
+            "item", "add", "delete", "3d viewport", "outliner", "view"
+        )
+    }
+
+    private fun isLikelySceneObjectName(name: String): Boolean {
+        val n = name.lowercase().trim()
+        if (isUiControlName(name)) return false
+        val scenePrimitives = setOf(
+            "cube", "sphere", "uv sphere", "ico sphere", "cylinder", "cone",
+            "plane", "torus", "grid", "monkey", "suzanne", "camera", "light",
+            "selected", "active", "active_object"
+        )
+        return n in scenePrimitives || n.contains(".") || Character.isUpperCase(name.firstOrNull() ?: 'a')
+    }
+
+    fun isUpwardMovementStep(step: TutorStep): Boolean {
+        val titleNorm = step.title.lowercase()
+        val instrNorm = step.instruction.lowercase()
+        val prop = step.expectedState?.targetProperty?.lowercase()
+        val propVal = step.expectedState?.expectedPropertyValue
+        val hasZUpCond = step.expectedState?.requiredConditions?.any {
+            it.propertyName?.equals("location.z", ignoreCase = true) == true &&
+                it.expectedValue?.contains(">") == true
+        } == true
+
+        return (titleNorm.contains("move") && titleNorm.contains("up")) ||
+            (prop == "location.z" && propVal?.contains(">") == true) ||
+            hasZUpCond ||
+            (instrNorm.contains("z-axis") && instrNorm.contains("up"))
+    }
+
+    /**
+     * Validates that target bounding box meets plausibility requirements:
+     * - Non-collapsed, non-empty dimensions (minimum 4x4 pixels).
+     * - Intersects application window if window bounds are known.
+     * - Does not engulf the entire application window (e.g. background root canvas).
+     */
+    fun isValidControlBounds(bounds: Rectangle?, windowBounds: Rectangle?): Boolean {
+        if (bounds == null) return false
+        if (bounds.width < 4 || bounds.height < 4) return false
+
+        if (windowBounds != null && windowBounds.width > 0 && windowBounds.height > 0) {
+            if (!windowBounds.intersects(bounds)) return false
+            if (bounds.width >= windowBounds.width * 0.98 && bounds.height >= windowBounds.height * 0.98) return false
+        }
+        return true
+    }
 
     suspend fun resolveTarget(
         step: TutorStep,
         appContext: ApplicationContext? = null,
-        screenshot: BufferedImage? = null
+        screenshot: BufferedImage? = null,
+        allowStepDefaultFallback: Boolean = true
     ): TargetPositionResult {
+        // 0. Try Blender 3D object projection if adapter is configured and target is an identifiable scene object
+        val objectTarget = identifyTargetObject(step)
+        if (blenderAdapter != null && objectTarget != null) {
+            when (val proj = blenderAdapter.projectObject(objectTarget)) {
+                is adapter.ProjectedObjectResult.Success -> {
+                    val isMoveUp = isUpwardMovementStep(step)
+                    val region = if (isMoveUp) {
+                        proj.bounds.copy(
+                            directionalIndicator = models.DirectionalIndicator(
+                                axis = models.DirectionalAxis.UP_POSITIVE_Z,
+                                label = "+Z Up",
+                                hint = "Press G, then Z to constrain to the vertical Z-axis and move upward"
+                            )
+                        )
+                    } else {
+                        proj.bounds
+                    }
+                    val confidence = when (proj.visibility) {
+                        "VISIBLE" -> 0.99
+                        "PARTIALLY_CLIPPED" -> 0.85
+                        "POTENTIALLY_OCCLUDED" -> 0.50
+                        else -> 0.90
+                    }
+                    val occlusionNote = if (proj.occludedBy != null) " (occluded by ${proj.occludedBy})" else ""
+                    return TargetPositionResult(
+                        region = region,
+                        source = TargetLocalizationSource.BLENDER_3D_PROJECTION,
+                        confidence = confidence,
+                        isSemanticallyVerified = true,
+                        candidateName = proj.targetName,
+                        diagnostic = "Projected 3D object '${proj.targetName}' (${proj.identity}) [${proj.visibility}$occlusionNote] from active 3D viewport."
+                    )
+                }
+                is adapter.ProjectedObjectResult.AmbiguousViewport -> {
+                    return TargetPositionResult(
+                        region = null,
+                        source = TargetLocalizationSource.BLENDER_3D_PROJECTION,
+                        confidence = 0.0,
+                        isSemanticallyVerified = false,
+                        candidateName = objectTarget,
+                        diagnostic = "Multiple 3D viewports detected (${proj.viewportCount}); viewport is ambiguous."
+                    )
+                }
+                is adapter.ProjectedObjectResult.NotProjected -> {
+                    return TargetPositionResult(
+                        region = null,
+                        source = TargetLocalizationSource.BLENDER_3D_PROJECTION,
+                        confidence = 0.0,
+                        isSemanticallyVerified = false,
+                        candidateName = objectTarget,
+                        diagnostic = "Object '$objectTarget' exists in Blender but is ${proj.reason}: ${proj.diagnostic}"
+                    )
+                }
+                is adapter.ProjectedObjectResult.NotFound -> {
+                    if (step.expectedState?.targetName != null && step.expectedState.targetName.equals(objectTarget, ignoreCase = true)) {
+                        return TargetPositionResult(
+                            region = null,
+                            source = TargetLocalizationSource.BLENDER_3D_PROJECTION,
+                            confidence = 0.0,
+                            isSemanticallyVerified = false,
+                            candidateName = objectTarget,
+                            diagnostic = "Target object '$objectTarget' not found in active Blender scene."
+                        )
+                    }
+                }
+                is adapter.ProjectedObjectResult.Error -> {
+                    // Blender adapter error or disconnected; fall through
+                }
+            }
+        }
+
         val targetName = step.targetControlName?.trim().orEmpty()
         val targetDesc = step.targetAreaDescription?.trim().orEmpty()
         val queryText = if (targetName.isNotEmpty()) targetName else step.instruction
@@ -87,26 +244,29 @@ class DynamicTargetPositioningService(
             }
         }
 
-        // 4. Fallback to step-defined targetRegion if present
-        if (step.targetRegion != null) {
+        // 4. Fallback to step-defined targetRegion if allowed and valid
+        if (allowStepDefaultFallback && step.targetRegion != null) {
             val fallback = step.targetRegion
-            return TargetPositionResult(
-                region = fallback,
-                source = TargetLocalizationSource.STEP_DEFAULT,
-                confidence = 0.5,
-                isSemanticallyVerified = false,
-                candidateName = step.targetControlName,
-                diagnostic = "Dynamic localization fell back to step default region."
-            )
+            val fallbackRect = Rectangle(fallback.x.roundToInt(), fallback.y.roundToInt(), fallback.width.roundToInt(), fallback.height.roundToInt())
+            if (isValidControlBounds(fallbackRect, appContext?.windowBounds)) {
+                return TargetPositionResult(
+                    region = fallback,
+                    source = TargetLocalizationSource.STEP_DEFAULT,
+                    confidence = 0.5,
+                    isSemanticallyVerified = false,
+                    candidateName = step.targetControlName,
+                    diagnostic = "Dynamic localization fell back to step default region."
+                )
+            }
         }
 
-        // 5. Abstain gracefully when no target can be localized
+        // 5. Abstain gracefully when no target can be localized reliably
         return TargetPositionResult(
             region = null,
             source = TargetLocalizationSource.ABSTAIN,
             confidence = 0.0,
             isSemanticallyVerified = false,
-            diagnostic = "Unable to localize target '${queryText}' across UIA, OCR, or visual grounding."
+            diagnostic = "Unable to localize target '${queryText}' reliably across UIA, OCR, or visual grounding."
         )
     }
 
@@ -124,12 +284,13 @@ class DynamicTargetPositioningService(
         if (candidates.isEmpty()) return null
 
         val normalizedQuery = queryText.lowercase().trim()
+        val windowBounds = appContext?.windowBounds
         val matchingCandidates = candidates.filter { candidate ->
             val name = candidate.name?.lowercase()?.trim().orEmpty()
             val autoId = candidate.automationId?.lowercase()?.trim().orEmpty()
             val bounds = candidate.bounds
-            val isValidBounds = bounds != null && bounds.width > 4 && bounds.height > 4
             val isNotOffscreen = candidate.isOffscreen != true
+            val isValidBounds = isValidControlBounds(bounds, windowBounds)
 
             isValidBounds && isNotOffscreen && (
                 name == normalizedQuery ||
@@ -145,14 +306,6 @@ class DynamicTargetPositioningService(
 
         val bounds = bestCandidate.bounds ?: return null
 
-        // Validate coordinates against application window if bounds are known
-        val windowBounds = appContext?.windowBounds
-        if (windowBounds != null && windowBounds.width > 0 && windowBounds.height > 0) {
-            if (!windowBounds.intersects(bounds)) {
-                return null // Rejected: element is outside the target application's window
-            }
-        }
-
         val similarity = textSimilarity(queryText, bestCandidate.name.orEmpty())
         val isExact = bestCandidate.name.equals(queryText, ignoreCase = true)
         val confidence = if (isExact) 0.98 else (0.80 + similarity * 0.18).coerceAtMost(0.95)
@@ -162,7 +315,8 @@ class DynamicTargetPositioningService(
             x = logicalBounds.x.toFloat(),
             y = logicalBounds.y.toFloat(),
             width = logicalBounds.width.toFloat(),
-            height = logicalBounds.height.toFloat()
+            height = logicalBounds.height.toFloat(),
+            isScreenCoordinates = true
         )
 
         return TargetPositionResult(
@@ -234,11 +388,19 @@ class DynamicTargetPositioningService(
             targetBox.height
         )
 
+        // Validate bounds against application window and clickable dimensions
+        if (!isValidControlBounds(screenBounds, appContext?.windowBounds)) {
+            return null
+        }
+
+        // Apply DPI normalization from physical screen pixels to logical Compose DIPs
+        val logicalBounds = dpiNormalizer.physicalToLogical(screenBounds)
         val highlight = HighlightRegion(
-            x = screenBounds.x.toFloat(),
-            y = screenBounds.y.toFloat(),
-            width = screenBounds.width.toFloat(),
-            height = screenBounds.height.toFloat()
+            x = logicalBounds.x.toFloat(),
+            y = logicalBounds.y.toFloat(),
+            width = logicalBounds.width.toFloat(),
+            height = logicalBounds.height.toFloat(),
+            isScreenCoordinates = true
         )
 
         return TargetPositionResult(
@@ -287,12 +449,17 @@ class DynamicTargetPositioningService(
             acceptedBox.height.toInt()
         )
 
+        if (!isValidControlBounds(screenBounds, appContext?.windowBounds)) {
+            return null
+        }
+
         val logicalBounds = dpiNormalizer.physicalToLogical(screenBounds)
         val highlight = HighlightRegion(
             x = logicalBounds.x.toFloat(),
             y = logicalBounds.y.toFloat(),
             width = logicalBounds.width.toFloat(),
-            height = logicalBounds.height.toFloat()
+            height = logicalBounds.height.toFloat(),
+            isScreenCoordinates = true
         )
 
         val confidence = result.selectedCandidate?.score ?: 0.75
@@ -308,3 +475,4 @@ class DynamicTargetPositioningService(
         )
     }
 }
+

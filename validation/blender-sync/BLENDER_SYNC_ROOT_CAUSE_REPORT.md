@@ -1,64 +1,82 @@
-# Root Cause Analysis: Blender State Synchronization & UV Sphere Verification Defect
+# Root Cause Analysis: Blender State Synchronization, Object Verification, and Universal Verify Button Defect
 
-## Executive Summary
-A critical defect in AIVisualTutor caused the tutoring UI to report prerequisite failures (`⚠️ Prerequisite steps must be satisfied before this step can be verified`) and retry exhaustion (`Retry limit reached`) while the learner had successfully created a UV sphere in Blender.
-
-The failure was not caused by a single bug, but by **three interacting defects** across prerequisite tracking, baseline capture lifecycle, and delta verification:
-1. **Prerequisite & Tracker Disconnect**: Instructional steps without explicit `expectedState` (such as Step 2: "Add Mesh Sphere") were not recorded in `GoalProgressTracker.completedStepIds` when advancing past them. Consequently, Step 3 (`step_3`), which listed `step_2` as a prerequisite, failed prerequisite checks.
-2. **Post-Action Baseline Contamination**: `ClosedLoopRecoveryCoordinator.verifyActiveStep()` captured its baseline state synchronously at the moment the user clicked "Verify" (after the user had already created the sphere in Step 2). Both baseline and post-action observations contained `Sphere`.
-3. **Rigid Delta Rejection**: `StateVerifier.verifyOperation` for `VerificationOperation.CREATE` enforces `before.isNotEmpty() -> false`. Because `run.baseline` already contained the sphere created by the learner, verification unconditionally evaluated to `FAILURE`, looping until the retry limit (3 attempts) was exhausted.
-4. **Fragile Name Matching**: `objectMatchesName` used strict case-insensitive equality, failing on Blender auto-numbered names such as `"Sphere.001"`.
+## 1. Executive Summary
+During manual and integration testing of AIVisualTutor, four critical failure modes were observed:
+1. **Failure A (Object Creation Detection)**: When the user added a UV sphere in Blender, the tutoring system did not detect the sphere reliably, repeatedly reporting mismatch or prerequisite issues.
+2. **Failure B (Verify Button Disappearance)**: After completing Step 1 ("Ensure Object Mode"), the tutoring panel displayed Step 2 ("Add Mesh Sphere"), but the "Verify" button completely disappeared from the action area, replaced by "Next" and a stale "Action Verified!" bubble.
+3. **Failure C (Object Deletion Detection)**: When a learner deleted an object so that the scene became empty of mesh geometry, verification failed with `Retry Limit Reached` after 3 attempts.
+4. **Failure D (Placeholder Identity Bug)**: In deletion tasks, the expected target object was set to `"Active"`, causing verification logic to literally look for a Blender object named `"Active"` instead of resolving the actual selected/active object in the scene.
 
 ---
 
-## Source Locations & Affected Symbols
+## 2. Root Cause Breakdown by Component and Failure Mode
 
-| Component | File | Symbol(s) | Role in Defect |
-|---|---|---|---|
-| Goal Planning | `UserGoalPlanner.kt` | `planCreateSphere()` | Step 1 mode check was unmodeled; Step 2 had `expectedState = null`, while Step 3 declared `prerequisiteStepIds = listOf("step_2")`. |
-| Step Navigation | `TutorController.kt` | `nextStep()`, `goToStep()` | Advancing past non-verifiable steps did not register them in `GoalProgressTracker.completedStepIds`. |
-| UI State Display | `TutorPanel.kt` | `allSteps.forEachIndexed` | Checkmarks displayed `✔` whenever `idx < currentStepIndex`, masking the fact that the underlying tracker had not completed earlier prerequisites. |
-| Verification Lifecycle | `ClosedLoopRecoveryCoordinator.kt` | `verifyActiveStep()`, `onStepChanged()` | Baseline was captured *after* the learner created the object, poisoning delta verification. |
-| Re-evaluation Fallback | `BlenderVerificationWorkflow.kt` | `verifyWithPreCreationBaseline()` | Workflow lacked a defensible mechanism to confirm an object's genuine presence if baseline was established after creation. |
-| Object Matching | `ClosedLoopStateVerification.kt` | `objectMatchesName()` | Did not support Blender standard numbered duplicates (`Sphere.001`). |
+### Failure A: Object Creation (UV Sphere)
+- **Component**: `context.StateVerifier.kt`, `context.ClosedLoopRecoveryCoordinator.kt`, `context.StateMismatchDiagnosticEngine.kt`
+- **Root Cause**:
+  1. *Rigid Delta Logic*: `StateVerifier.verifyOperation` for `VerificationOperation.CREATE` checked `before.isNotEmpty() -> false`. If baseline was captured after the learner created the object, or if an existing sphere was present, verification unconditionally returned `FAILURE`.
+  2. *Duplicate Name Rigidity*: Blender auto-numbers duplicates (e.g. `Sphere.001`, `Sphere.002`). Name matching performed strict exact equality against `"Sphere"`, failing when Blender named the new mesh `Sphere.001`.
+  3. *Unresolved Prerequisite Deadlock*: Step 2 ("Add Mesh Sphere") had no `expectedState`, so completing or advancing past it did not register it as satisfied in `GoalProgressTracker`. Step 3 had `step_2` as a prerequisite, blocking verification.
 
----
+### Failure B: Verify Button Disappearance
+- **Component**: `ui.TutorPanel.kt`, `tutor.ClosedLoopRecoveryCoordinator.kt`
+- **Root Cause**:
+  1. *Conditional UI Rendering*: In `TutorPanel.kt`, the Verify button was enclosed in `if (activeStep.expectedState != null)`. Multi-step goal plans for object creation and manipulation have instructional/action steps (such as Step 2: "Press Shift+A and select Mesh > UV Sphere") where `expectedState` is `null`. Compose completely omitted the button for these steps.
+  2. *Stale Speech Bubble*: In `TutorPanel.kt`, the speech bubble logic fell through to checking `controller.state.lastPedagogicalOutcome == PedagogicalOutcome.VERIFIED_SUCCESS` from Step 1, rendering a misleading "Action Verified! ✔" banner on Step 2 before any action had been taken.
 
-## Evidence Establishing the Root Cause
+### Failure C: Object Deletion Detection
+- **Component**: `context.ClosedLoopStateVerification.kt`, `tutor.ClosedLoopRecoveryCoordinator.kt`
+- **Root Cause**:
+  1. *Rigid Before/After Requirement*: `StateVerifier.verifyOperation` for `VerificationOperation.DELETE` evaluated `before.isEmpty() -> false`. When the learner deleted the object *before* clicking Verify (the natural user behavior), the baseline state already lacked the object. The verifier required the object to be present in baseline, causing immediate failure even though the object was genuinely deleted.
+  2. *Missing Scene Absence Fallback*: If the scene was completely emptied of mesh objects (`after.isEmpty()`), the verifier did not treat complete mesh absence as satisfying deletion of the target mesh when baseline lacked it.
 
-1. **Prerequisite Warning Banner**:
-   In `TutorPanel.kt`:
-   ```kotlin
-   if (!controller.canExecuteCurrentStep()) {
-       Text("⚠️ Prerequisite steps must be satisfied before this step can be verified.")
-   }
-   ```
-   `controller.canExecuteCurrentStep()` delegated to `goalProgressTracker.canExecuteStep(step)`. Because `step_2` was never verified through `recordStepVerification()`, `canExecuteStep()` returned `false`. Meanwhile, the step card rendered a cosmetic `✔` merely because `idx < currentStepIndex`.
-
-2. **Baseline Contamination Trace**:
-   When the learner was on Step 2 ("Add Mesh Sphere"), they created the sphere in Blender. Advancing to Step 3 cleared `activeBaselineRun`. When clicking "Verify", `coordinator.verifyActiveStep()` called `workflow.captureBaseline(expected)`. At this timestamp, the sphere was already in Blender. Immediately thereafter, `workflow.verifyAction(run)` captured the post-action state. Both states had `Sphere`.
-
-3. **Delta Rejection Trace**:
-   In `StateVerifier.verifyOperation`:
-   ```kotlin
-   VerificationOperation.CREATE -> when {
-       before.isNotEmpty() -> false
-   }
-   ```
-   Because `before` (from baseline) had `Sphere`, the operation verdict was `false`, producing `VerificationResult(status = FAILURE)`.
-
-4. **Retry Limit Deadlock**:
-   Every retry repeated the contaminated capture (`before` containing `Sphere`), failing every time until `attemptNumber >= policy.maxVerifiedFailuresPerStep` triggered `RetryLimitReached`.
+### Failure D: "Active" / "Selected" Placeholder Identity Bug
+- **Component**: `tutor.UserGoalPlanner.kt`, `context.ClosedLoopStateVerification.kt`, `context.StateMismatchDiagnosticEngine.kt`, `tutor.ClosedLoopRecoveryCoordinator.kt`
+- **Root Cause**:
+  1. *Literal Regex Extraction*: In `UserGoalPlanner.kt`, `extractTargetObjectName("delete active object")` matched `"active"` as a target object name and returned `"Active"`.
+  2. *Literal State Evaluation*: `ExpectedState(operation = DELETE, targetName = "Active")` was passed to the verifier, which searched Blender's scene objects for an object with `name.equals("Active", ignoreCase = true)`. Because Blender's default objects are named `Cube`, `Sphere`, `Camera`, `Light`, the object was never found, or deletion of `Cube` was not recognized as deleting `"Active"`.
+  3. *Lack of Dynamic Identity Resolution*: The planner and coordinator did not resolve `"Active"` or `"Selected"` against live Blender telemetry (the active object in the snapshot).
 
 ---
 
-## Why Previous Tests Did Not Catch It
+## 3. Detailed Call Trace of Defect Propagation
 
-- **Faked Sequential Test Providers**:
-  In `ClosedLoopRecoveryCoordinatorTest.kt:p11_01_successfulVerificationClosesLifecycleAndAdvancesLesson`:
-  The test used `SequentialBlenderStateProvider`:
-  - Call 1 returned `Cube` only.
-  - Call 2 returned `Cube` and `Sphere`.
-  This test artificially simulated the creation happening *between* `captureBaseline()` and `verifyAction()`. In live user tutoring, the user creates the object *before* clicking verify.
-- **Isolated Unit Tests**:
-  `GoalProgressTrackerTest` tested tracker logic with programmatic `recordStepVerification` calls, never testing the UI click-through path where instructional steps (`expectedState == null`) were navigated past using `nextStep()`.
+```
+User enters goal: "Delete active object" (Blender scene contains 'Sphere' active)
+  │
+  ▼
+UserGoalPlanner.planGoal()
+  ├── extracts target name -> "Active" (Literal bug!)
+  └── creates step with expectedState: DELETE "Active"
+  │
+  ▼
+Learner deletes 'Sphere' in Blender (Viewport now has only Camera, Light)
+  │
+  ▼
+Learner clicks Verify (or auto-verify triggers)
+  │
+  ▼
+ClosedLoopRecoveryCoordinator.verifyActiveStep()
+  ├── Captures baseline -> scene has [Camera, Light] (No 'Sphere', No 'Active')
+  ├── Calls workflow.verifyAction()
+  │     ├── StateVerifier evaluates DELETE:
+  │     │     ├── Target "Active" not in before (before.isEmpty() -> false!)
+  │     │     └── Result: FAILURE
+  │     └── Result stored as FAILURE
+  │
+  ▼
+Retry loop increments attempt counter (1 -> 2 -> 3)
+  └── Triggers: RetryLimitReached ("Step 'Delete Object' reached retry limit of 3 attempts")
+```
+
+---
+
+## 4. Source Files Affected
+1. `composeApp/src/main/kotlin/ui/TutorPanel.kt`
+2. `composeApp/src/main/kotlin/tutor/UserGoalPlanner.kt`
+3. `composeApp/src/main/kotlin/tutor/TutorController.kt`
+4. `composeApp/src/main/kotlin/tutor/ClosedLoopRecoveryCoordinator.kt`
+5. `composeApp/src/main/kotlin/context/ClosedLoopStateVerification.kt`
+6. `composeApp/src/main/kotlin/context/StateMismatchDiagnosticEngine.kt`
+7. `composeApp/src/main/kotlin/context/BlenderVerificationWorkflow.kt`
+8. `blender/ai_visual_tutor_state/__init__.py`

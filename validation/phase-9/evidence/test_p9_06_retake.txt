@@ -1,4 +1,4 @@
 === Test P9-06: Retake Screenshot ===
 Status: PASS
 First File Purged: true
-Second File Created: C:\Users\HP\AppData\Local\Temp\AIVT_BlenderCapture_42642a527db14c9199c2c5c28b8d68d8_8466503529897223422.png (3130 bytes)
+Second File Created: C:\Users\USER\AppData\Local\Temp\AIVT_BlenderCapture_670291d2ec38454dabf4f912e02b2f49_13528960957813334475.png (296308 bytes)

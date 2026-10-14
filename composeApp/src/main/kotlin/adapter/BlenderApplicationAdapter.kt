@@ -20,7 +20,7 @@ import kotlinx.coroutines.withContext
  * Production Kotlin client adapter for Blender using versioned loopback HTTP JSON communication.
  * Implements both [ApplicationAdapter] and [BlenderStateProvider] for deep, backward-compatible integration.
  */
-class BlenderApplicationAdapter(
+open class BlenderApplicationAdapter(
     val port: Int = DEFAULT_PORT,
     val host: String = DEFAULT_HOST,
     val authToken: String? = null,
@@ -346,8 +346,12 @@ class BlenderApplicationAdapter(
                 location = loc,
                 rotation = rot,
                 scale = scale,
-                visible = vis,
-                properties = listOfNotNull(loc?.let { "location" to it.joinToString(",") }).toMap()
+                properties = listOfNotNull(
+                    loc?.let { "location" to it.joinToString(",") },
+                    rot?.let { "rotation" to it.joinToString(",") },
+                    scale?.let { "scale" to it.joinToString(",") },
+                    "visible" to vis.toString()
+                ).toMap()
             )
         }.toList()
     }
@@ -380,12 +384,196 @@ class BlenderApplicationAdapter(
         return Regex("\"([^\"]*)\"").findAll(content).map { it.groupValues[1] }.toList()
     }
 
+    open suspend fun projectObject(targetName: String): ProjectedObjectResult = projectObject(targetName, null)
+
+    open suspend fun projectObject(targetName: String, viewportIndex: Int?): ProjectedObjectResult = withContext(Dispatchers.IO) {
+        try {
+            val encodedTarget = java.net.URLEncoder.encode(targetName.trim(), java.nio.charset.StandardCharsets.UTF_8)
+            val uriStr = if (viewportIndex != null) {
+                "$baseUri/api/v1/project?target=$encodedTarget&viewport=$viewportIndex"
+            } else {
+                "$baseUri/api/v1/project?target=$encodedTarget"
+            }
+            val requestBuilder = HttpRequest.newBuilder()
+                .uri(URI.create(uriStr))
+                .timeout(Duration.ofMillis(timeoutMillis))
+                .GET()
+            authToken?.let { requestBuilder.header("X-Session-Token", it) }
+
+            val response = httpClient.send(requestBuilder.build(), HttpResponse.BodyHandlers.ofString())
+            when (response.statusCode()) {
+                200 -> parseProjectedObjectJson(response.body())
+                404 -> parseProjectedObjectJson(response.body()).takeIf { it !is ProjectedObjectResult.Error }
+                    ?: ProjectedObjectResult.NotFound(targetName, "Object not found in active Blender scene.")
+                422 -> parseProjectedObjectJson(response.body()).takeIf { it !is ProjectedObjectResult.Error }
+                    ?: ProjectedObjectResult.NotProjected(targetName, "Object outside active 3D viewport or ambiguous.")
+                else -> ProjectedObjectResult.Error("Blender adapter returned HTTP ${response.statusCode()}: ${response.body()}")
+            }
+        } catch (ex: Exception) {
+            ProjectedObjectResult.Error("Failed to project object '$targetName': ${ex.message}")
+        }
+    }
+
+    fun parseProjectedObjectJson(json: String): ProjectedObjectResult {
+        val status = extractString(json, "status")
+        val target = extractString(json, "target")
+        val errorMsg = extractString(json, "error")
+
+        if (status == "AMBIGUOUS_VIEWPORT") {
+            val count = extractInt(json, "viewportCount").takeIf { it > 0 } ?: 2
+            val diag = errorMsg.ifBlank { "Multiple 3D viewports detected ($count); viewport is ambiguous." }
+            return ProjectedObjectResult.AmbiguousViewport(target, count, diag)
+        }
+
+        if (status == "OUTSIDE_VIEWPORT" || status == "PROJECTION_UNAVAILABLE" || status == "NOT_PROJECTED") {
+            val reason = extractString(json, "reason").ifBlank { status }
+            val diag = errorMsg.ifBlank { "Object '$target' is outside active 3D viewport." }
+            return ProjectedObjectResult.NotProjected(target, diag, reason)
+        }
+
+        if (status == "NOT_FOUND") {
+            val diag = errorMsg.ifBlank { "Object '$target' not found in active Blender scene." }
+            return ProjectedObjectResult.NotFound(target, diag)
+        }
+
+        val identity = extractString(json, "identity")
+        val visible = extractBoolean(json, "visible") ?: true
+        val selected = extractBoolean(json, "selected") ?: false
+        val visibility = extractString(json, "visibility").ifBlank { "VISIBLE" }
+        val occludedBy = extractString(json, "occludedBy").takeIf(String::isNotBlank)
+        val isClipped = extractBoolean(json, "isPartiallyClipped") ?: (visibility == "PARTIALLY_CLIPPED")
+
+        val boundsPattern = Regex("\"bounds\"\\s*:\\s*\\{([^\\}]*)\\}")
+        val boundsMatch = boundsPattern.find(json)
+        val boundsBlock = boundsMatch?.groupValues?.get(1).orEmpty()
+
+        val x = extractDouble(boundsBlock, "x")?.toFloat() ?: 0f
+        val y = extractDouble(boundsBlock, "y")?.toFloat() ?: 0f
+        val w = extractDouble(boundsBlock, "width")?.toFloat() ?: 100f
+        val h = extractDouble(boundsBlock, "height")?.toFloat() ?: 100f
+
+        val region = models.HighlightRegion(
+            x = x,
+            y = y,
+            width = w,
+            height = h,
+            isScreenCoordinates = false // Window-relative within Blender window
+        )
+
+        return ProjectedObjectResult.Success(
+            targetName = target,
+            identity = identity,
+            bounds = region,
+            isVisible = visible,
+            isSelected = selected,
+            visibility = visibility,
+            occludedBy = occludedBy,
+            isPartiallyClipped = isClipped
+        )
+    }
+
+    open suspend fun fetchVersion(): AdapterVersionResult = withContext(Dispatchers.IO) {
+        try {
+            val requestBuilder = HttpRequest.newBuilder()
+                .uri(URI.create("$baseUri/api/v1/version"))
+                .timeout(Duration.ofMillis(timeoutMillis))
+                .GET()
+            authToken?.let { requestBuilder.header("X-Session-Token", it) }
+
+            val response = httpClient.send(requestBuilder.build(), HttpResponse.BodyHandlers.ofString())
+            if (response.statusCode() == 200) {
+                parseVersionJson(response.body())
+            } else {
+                AdapterVersionResult.Error("Blender adapter returned HTTP ${response.statusCode()}: ${response.body()}")
+            }
+        } catch (ex: ConnectException) {
+            AdapterVersionResult.Unavailable("Blender adapter is unavailable on $baseUri: ${ex.message}")
+        } catch (ex: Exception) {
+            AdapterVersionResult.Error("Failed to fetch version: ${ex.message}")
+        }
+    }
+
+    fun parseVersionJson(json: String): AdapterVersionResult {
+        val snapVer = extractLong(json, "snapshotVersion")
+        val evtCounter = extractLong(json, "eventCounter")
+        val sessId = extractString(json, "sessionId")
+        val mode = extractString(json, "activeMode").ifBlank { "OBJECT" }
+        val actObj = extractString(json, "activeObject").takeIf(String::isNotBlank)
+        val selCount = extractInt(json, "selectedCount")
+        return AdapterVersionResult.Success(
+            AdapterVersionInfo(
+                snapshotVersion = snapVer,
+                eventCounter = evtCounter,
+                sessionId = sessId,
+                activeMode = mode,
+                activeObject = actObj,
+                selectedCount = selCount
+            )
+        )
+    }
+
+    private fun extractDouble(json: String, key: String): Double? {
+        val pattern = Regex("\"$key\"\\s*:\\s*(-?[0-9]+(?:\\.[0-9]+)?)")
+        return pattern.find(json)?.groupValues?.get(1)?.toDoubleOrNull()
+    }
+
     companion object {
         const val DEFAULT_PORT = 47629
         const val DEFAULT_HOST = "127.0.0.1"
         const val DEFAULT_TIMEOUT_MILLIS = 2000L
     }
 }
+
+/**
+ * Version and event synchronization information from Blender.
+ */
+data class AdapterVersionInfo(
+    val snapshotVersion: Long,
+    val eventCounter: Long,
+    val sessionId: String,
+    val activeMode: String = "OBJECT",
+    val activeObject: String? = null,
+    val selectedCount: Int = 0
+)
+
+sealed class AdapterVersionResult {
+    data class Success(val info: AdapterVersionInfo) : AdapterVersionResult()
+    data class Unavailable(val diagnostic: String) : AdapterVersionResult()
+    data class Error(val diagnostic: String) : AdapterVersionResult()
+}
+
+/**
+ * Result of non-destructive 3D object projection from Blender's active viewport.
+ */
+sealed class ProjectedObjectResult {
+    data class Success(
+        val targetName: String,
+        val identity: String,
+        val bounds: models.HighlightRegion,
+        val isVisible: Boolean,
+        val isSelected: Boolean,
+        val visibility: String = "VISIBLE",
+        val occludedBy: String? = null,
+        val isPartiallyClipped: Boolean = false
+    ) : ProjectedObjectResult()
+
+    data class AmbiguousViewport(
+        val target: String,
+        val viewportCount: Int,
+        val diagnostic: String
+    ) : ProjectedObjectResult()
+
+    data class NotFound(val target: String, val diagnostic: String) : ProjectedObjectResult()
+
+    data class NotProjected(
+        val target: String,
+        val diagnostic: String,
+        val reason: String = "OUTSIDE_VIEWPORT"
+    ) : ProjectedObjectResult()
+
+    data class Error(val diagnostic: String) : ProjectedObjectResult()
+}
+
 
 /**
  * Extension mapping [AdapterSnapshot] to legacy [BlenderStateObservation].

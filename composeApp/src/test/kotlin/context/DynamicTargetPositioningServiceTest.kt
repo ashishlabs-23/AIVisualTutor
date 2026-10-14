@@ -244,5 +244,150 @@ class DynamicTargetPositioningServiceTest {
         assertTrue(result.diagnostic?.contains("RegionFocus") == true)
         // Sub-crop was right quadrant (0.65 * 1920 = 1248 offset)
         assertTrue(result.boundsInScreenCoordinates!!.x >= 1248)
+        assertTrue(result.region!!.isScreenCoordinates)
+    }
+
+    @Test
+    fun `rejects degenerate collapsed bounding boxes and abstains when fallback disabled`() = runBlocking {
+        val mockClient = UiAutomationClient { hwnd ->
+            listOf(
+                UiAutomationCandidate(
+                    name = "Add",
+                    automationId = "btn_add",
+                    controlTypeId = 50000,
+                    bounds = Rectangle(100, 100, 2, 2), // Degenerate < 4x4
+                    isEnabled = true,
+                    isOffscreen = false
+                )
+            )
+        }
+
+        val service = DynamicTargetPositioningService(uiaClient = mockClient)
+        val step = TutorStep(
+            id = 1,
+            title = "Add",
+            instruction = "Click Add",
+            description = "Click Add",
+            stepNumber = 1,
+            totalSteps = 1,
+            targetControlName = "Add",
+            targetRegion = null
+        )
+
+        val appContext = ApplicationContext(
+            applicationName = "TestApp",
+            processName = "test.exe",
+            pid = 1L,
+            windowHandle = 2L,
+            windowBounds = Rectangle(0, 0, 1920, 1080)
+        )
+
+        val result = service.resolveTarget(step, appContext, allowStepDefaultFallback = false)
+        assertEquals(TargetLocalizationSource.ABSTAIN, result.source)
+        assertNull(result.region)
+    }
+
+    @Test
+    fun `rejects oversized bounding boxes covering entire window`() = runBlocking {
+        val mockClient = UiAutomationClient { hwnd ->
+            listOf(
+                UiAutomationCandidate(
+                    name = "Canvas",
+                    automationId = "root_canvas",
+                    controlTypeId = 50000,
+                    bounds = Rectangle(0, 0, 1920, 1080), // Covers 100% of window
+                    isEnabled = true,
+                    isOffscreen = false
+                )
+            )
+        }
+
+        val service = DynamicTargetPositioningService(uiaClient = mockClient)
+        val step = TutorStep(
+            id = 1,
+            title = "Canvas",
+            instruction = "Click Canvas",
+            description = "Click Canvas",
+            stepNumber = 1,
+            totalSteps = 1,
+            targetControlName = "Canvas",
+            targetRegion = null
+        )
+
+        val appContext = ApplicationContext(
+            applicationName = "TestApp",
+            processName = "test.exe",
+            pid = 1L,
+            windowHandle = 2L,
+            windowBounds = Rectangle(0, 0, 1920, 1080)
+        )
+
+        val result = service.resolveTarget(step, appContext, allowStepDefaultFallback = false)
+        assertEquals(TargetLocalizationSource.ABSTAIN, result.source)
+    }
+
+    @Test
+    fun `normalizes OCR screen coordinates using DpiCoordinateNormalizer and tags screen coordinates`() = runBlocking {
+        val mockDpiNormalizer = DpiCoordinateNormalizer(
+            monitorsProvider = {
+                listOf(
+                    MonitorGeometry(
+                        id = "PRIMARY",
+                        logicalBounds = Rectangle(0, 0, 1280, 720),
+                        scaleX = 1.5,
+                        scaleY = 1.5,
+                        physicalBounds = Rectangle(0, 0, 1920, 1080)
+                    )
+                )
+            }
+        )
+        val mockOcr = OCRService { _ ->
+            OcrResult(
+                text = "Object Mode",
+                confidence = 0.95f,
+                words = listOf(
+                    OcrWord(text = "Object", confidence = 0.95f, bounds = Rectangle(30, 30, 60, 30), lineIndex = 0, wordIndex = 0),
+                    OcrWord(text = "Mode", confidence = 0.95f, bounds = Rectangle(95, 30, 50, 30), lineIndex = 0, wordIndex = 1)
+                ),
+                coordinateSpace = OcrCoordinateSpace.CROP_IMAGE_PIXELS,
+                engineName = "MockOCR"
+            )
+        }
+
+        val service = DynamicTargetPositioningService(
+            ocrService = mockOcr,
+            dpiNormalizer = mockDpiNormalizer
+        )
+
+        val step = TutorStep(
+            id = 1,
+            title = "Mode",
+            instruction = "Select Object Mode",
+            description = "Click Object",
+            stepNumber = 1,
+            totalSteps = 1,
+            targetControlName = "Object",
+            targetRegion = null
+        )
+
+        val dummyImage = BufferedImage(800, 600, BufferedImage.TYPE_INT_RGB)
+        val appContext = ApplicationContext(
+            applicationName = "TestApp",
+            processName = "test.exe",
+            pid = 1L,
+            windowHandle = 2L,
+            windowBounds = Rectangle(0, 0, 800, 600)
+        )
+
+        val result = service.resolveTarget(step, appContext, dummyImage)
+        assertEquals(TargetLocalizationSource.OCR, result.source)
+        assertNotNull(result.region)
+        assertTrue(result.region!!.isScreenCoordinates)
+        // Physical bounds: (30, 30, 60, 30). At 150% DPI scale, logical = (30 / 1.5, 30 / 1.5, 60 / 1.5, 30 / 1.5) = (20, 20, 40, 20)
+        assertEquals(20f, result.region!!.x)
+        assertEquals(20f, result.region!!.y)
+        assertEquals(40f, result.region!!.width)
+        assertEquals(20f, result.region!!.height)
     }
 }
+

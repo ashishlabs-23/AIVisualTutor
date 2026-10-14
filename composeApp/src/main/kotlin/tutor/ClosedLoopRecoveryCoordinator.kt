@@ -77,23 +77,6 @@ class ClosedLoopRecoveryCoordinator(
             return errorState
         }
 
-        val expected = activeStep.expectedState ?: inferExpectedStateFromStep(activeStep)
-        if (expected == null) {
-            val evidenceState = ClosedLoopRecoveryState.NeedsMoreEvidence(
-                requestId = UUID.randomUUID().toString(),
-                stepIndex = stepIndex,
-                message = "No expected state configured for step '${activeStep.title}'.",
-                canRetry = false
-            )
-            state = evidenceState
-            return evidenceState
-        }
-
-        val prereqFailure = resolvePrerequisites(stepIndex, activeStep)
-        if (prereqFailure != null) {
-            return prereqFailure
-        }
-
         val reqId: String
         actionMutex.withLock {
             if (state is ClosedLoopRecoveryState.Verifying || state is ClosedLoopRecoveryState.AwaitingStateCapture) {
@@ -104,7 +87,86 @@ class ClosedLoopRecoveryCoordinator(
             inFlightRequestId = reqId
             inFlightStepIndex = stepIndex
             inFlightPlanId = planId
+        }
 
+        var expected = activeStep.expectedState ?: inferExpectedStateFromStep(activeStep)
+        if (expected != null && (expected.targetName.equals("Active", ignoreCase = true) || expected.targetName.equals("Selected", ignoreCase = true))) {
+            if (workflow.lastObservedState == null && workflow.lastObservation == null) {
+                val liveObs = try {
+                    workflow.provider.observe()
+                } catch (ce: CancellationException) {
+                    throw ce
+                } catch (e: Exception) {
+                    null
+                }
+                if (liveObs != null && liveObs.status == context.BlenderObservationStatus.AVAILABLE) {
+                    workflow.lastObservation = liveObs
+                    val converted = liveObs.toObservedState(UUID.randomUUID().toString())
+                    workflow.lastObservedState = converted
+                    controller.recordObservedState(converted)
+                }
+            }
+            val resolvedName = workflow.lastObservedState?.selectedObjects?.firstOrNull()
+                ?: workflow.lastObservedState?.objects?.find { it.selected == true }?.name
+                ?: workflow.lastObservedState?.objects?.find { it.type == "MESH" }?.name
+                ?: workflow.lastObservation?.selectedObjects?.firstOrNull()
+                ?: workflow.lastObservation?.objects?.find { it.type == "MESH" }?.name
+            if (resolvedName != null) {
+                expected = expected.copy(targetName = resolvedName)
+            }
+        }
+
+        if (expected == null) {
+            val prereqFailure = resolvePrerequisites(stepIndex, activeStep)
+            if (prereqFailure != null) {
+                return prereqFailure
+            }
+
+            val obs = try {
+                workflow.provider.observe()
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (e: Exception) {
+                null
+            }
+
+            if (obs != null && obs.status != BlenderObservationStatus.AVAILABLE) {
+                val diagnostic = obs.diagnostic ?: "Blender state telemetry unavailable."
+                val isUnavailable = obs.status == BlenderObservationStatus.UNAVAILABLE
+                val message = if (isUnavailable) {
+                    "Blender is not running or the state adapter is not reachable."
+                } else {
+                    "Blender state telemetry unavailable: $diagnostic"
+                }
+                val evidenceState = ClosedLoopRecoveryState.NeedsMoreEvidence(
+                    requestId = reqId,
+                    stepIndex = stepIndex,
+                    message = message,
+                    diagnostic = diagnostic,
+                    canRetry = true
+                )
+                state = evidenceState
+                return evidenceState
+            }
+
+            val infoExpected = ExpectedState(operation = VerificationOperation.UNKNOWN)
+            val infoResult = VerificationResult(
+                status = VerificationStatus.SUCCESS,
+                runId = reqId,
+                operation = VerificationOperation.UNKNOWN,
+                explanation = "Step '${activeStep.title}' acknowledged and verified (informational step)."
+            )
+            return actionMutex.withLock {
+                handleSuccess(reqId, stepIndex, activeStep.id, activeStep.title, infoResult, infoExpected)
+            }
+        }
+
+        val prereqFailure = resolvePrerequisites(stepIndex, activeStep)
+        if (prereqFailure != null) {
+            return prereqFailure
+        }
+
+        actionMutex.withLock {
             state = ClosedLoopRecoveryState.AwaitingStateCapture(
                 requestId = reqId,
                 stepIndex = stepIndex,
@@ -140,6 +202,7 @@ class ClosedLoopRecoveryCoordinator(
                 )
             }
 
+            val priorObservedState = controller.sessionContext.lastObservedState
             var result: VerificationResult = try {
                 workflow.verifyAction(run)
             } catch (ce: CancellationException) {
@@ -147,6 +210,7 @@ class ClosedLoopRecoveryCoordinator(
             } catch (e: Exception) {
                 return handleCaptureFailure(reqId, stepIndex, "Blender state observation failed: ${e.message ?: "Connection error"}")
             }
+            workflow.lastObservedState?.let { controller.recordObservedState(it) }
 
             if (result.status == VerificationStatus.FAILURE &&
                 expected.operation == VerificationOperation.CREATE &&
@@ -156,7 +220,18 @@ class ClosedLoopRecoveryCoordinator(
                 if (preCreationResult?.status == VerificationStatus.SUCCESS) {
                     result = preCreationResult
                 }
+            } else if (result.status == VerificationStatus.FAILURE &&
+                expected.operation == VerificationOperation.DELETE &&
+                run.baseline?.objects?.none { workflow.verifier.objectMatchesName(it, expected.targetName) } == true
+            ) {
+                val preDeletionResult = workflow.verifyWithPreDeletionBaseline(run, priorObservedState)
+                if (preDeletionResult?.status == VerificationStatus.SUCCESS) {
+                    result = preDeletionResult
+                }
             }
+
+            // Record diagnostic log for this attempt
+            recordDiagnostic(reqId, activeStep, expected, result)
 
             // 3. Process outcome with stale-protection lock
             return actionMutex.withLock {
@@ -248,6 +323,8 @@ class ClosedLoopRecoveryCoordinator(
                 maxWaitMillis = policy.autoVerifyMaxWaitMillis
             )
 
+            recordDiagnostic(reqId, activeStep, expected, result)
+
             return actionMutex.withLock {
                 if (isStale(reqId, stepIndex, planId)) {
                     state = ClosedLoopRecoveryState.Cancelled("Step changed during auto-verification.")
@@ -271,6 +348,45 @@ class ClosedLoopRecoveryCoordinator(
                 state
             }
         }
+    }
+
+    private fun recordDiagnostic(
+        reqId: String,
+        activeStep: models.TutorStep,
+        expected: ExpectedState,
+        result: VerificationResult
+    ) {
+        val lastObs = workflow.lastObservedState ?: controller.sessionContext.lastObservedState
+        val targetName = expected.targetName ?: ""
+        val targetObj = lastObs?.objects?.find { workflow.verifier.objectMatchesName(it, targetName) }
+        val coords = targetObj?.metadata?.filterKeys { it in setOf("location", "location.x", "location.y", "location.z", "x", "y", "z") }
+        val expectedZ = expected.requiredConditions.find { it.propertyName?.equals("location.z", ignoreCase = true) == true }?.expectedValue
+            ?: if (expected.targetProperty?.equals("location.z", ignoreCase = true) == true) expected.expectedPropertyValue else null
+        val rawSnippet = lastObs?.metadata?.get("rawResponseSnippet")
+            ?: lastObs?.let { obs -> "Scene=${obs.sceneName}, Mode=${obs.mode}, Objects=${obs.objects.map { it.name }}" }
+        val planStep = controller.activePlan?.steps?.getOrNull(controller.state.currentStepIndex)
+        val taskId = planStep?.stepId ?: "step_${activeStep.id}"
+        val condDiagnostics = (result.satisfiedConditions.map { context.ConditionEvaluationDiagnostic(it.field.name, it.objectName, it.propertyName, it.expectedValue, true) } +
+            result.unsatisfiedConditions.map { context.ConditionEvaluationDiagnostic(it.field.name, it.objectName, it.propertyName, it.expectedValue, false) } +
+            result.indeterminateConditions.map { context.ConditionEvaluationDiagnostic(it.field.name, it.objectName, it.propertyName, it.expectedValue, null) })
+
+        context.VerificationDiagnosticLogger.record(
+            context.VerificationAttemptDiagnostic(
+                attemptId = reqId,
+                taskId = taskId,
+                taskDescription = activeStep.description.ifBlank { activeStep.title },
+                expectedZCondition = expectedZ,
+                expectedTarget = expected.targetName,
+                rawBlenderResponseSnippet = rawSnippet,
+                parsedCoordinates = coords,
+                objectIdentity = targetObj?.id,
+                observationTimestamp = lastObs?.capturedAt?.toString(),
+                freshness = lastObs?.metadata?.get("freshness") ?: if (lastObs != null) "FRESH" else "NONE",
+                conditionResults = condDiagnostics,
+                finalDecision = result.status,
+                failureReason = if (result.status != VerificationStatus.SUCCESS) result.explanation else null
+            )
+        )
     }
 
     private fun handleSuccess(
@@ -307,6 +423,19 @@ class ClosedLoopRecoveryCoordinator(
         )
         state = successState
 
+        val activeStep = controller.currentStep
+        if (activeStep != null) {
+            val evidence = controller.adaptiveTutoringEngine.observeLearnerProgress(
+                step = activeStep,
+                stepIndex = stepIndex,
+                baseline = activeBaselineRun?.baseline,
+                observed = controller.sessionContext.lastObservedState,
+                verificationStatus = VerificationStatus.SUCCESS,
+                failedAttemptsCount = 0
+            )
+            controller.latestLearnerEvidence = evidence
+        }
+
         // Notify controller to advance lesson progression
         controller.recordVerificationResult(result, expected)
         return successState
@@ -338,6 +467,30 @@ class ClosedLoopRecoveryCoordinator(
 
         val isRepeated = previousFailures.any { it.mismatchCategory == mismatchCat }
 
+        // Observe learner progress and classify outcome
+        val activeStep = controller.currentStep
+        if (activeStep != null) {
+            val evidence = controller.adaptiveTutoringEngine.observeLearnerProgress(
+                step = activeStep,
+                stepIndex = stepIndex,
+                baseline = run.baseline,
+                observed = observed,
+                verificationStatus = result.status,
+                failedAttemptsCount = attemptNumber
+            )
+            controller.latestLearnerEvidence = evidence
+
+            // Adapt visual highlight according to outcome
+            val adaptedHighlight = controller.adaptiveTutoringEngine.adaptHighlightForOutcome(
+                baseRegion = controller.state.currentHighlight,
+                outcome = evidence.outcome,
+                evidence = evidence
+            )
+            if (adaptedHighlight != null) {
+                controller.setHighlight(adaptedHighlight)
+            }
+        }
+
         // Build contextual, bounded recovery recommendation
         val recommendation = buildRecoveryRecommendation(
             stepIndex = stepIndex,
@@ -361,7 +514,8 @@ class ClosedLoopRecoveryCoordinator(
             retryOutcome = VerificationStatus.FAILURE
         )
         attempts.add(record)
-        activeBaselineRun = null
+        // Keep activeBaselineRun intact so subsequent verification attempts compare against
+        // the original pre-action baseline for this step.
 
         val remaining = (policy.maxVerifiedFailuresPerStep - attemptNumber).coerceAtLeast(0)
 
@@ -420,7 +574,7 @@ class ClosedLoopRecoveryCoordinator(
         val evidenceState = ClosedLoopRecoveryState.NeedsMoreEvidence(
             requestId = reqId,
             stepIndex = stepIndex,
-            message = "Blender state telemetry unavailable. Ensure Blender is running and connected.",
+            message = "Blender state telemetry unavailable: $diagnostic",
             diagnostic = diagnostic,
             canRetry = true
         )
@@ -437,8 +591,78 @@ class ClosedLoopRecoveryCoordinator(
         attemptNumber: Int,
         isRepeated: Boolean
     ): TutorRecommendation {
-        val primary = report.primaryMismatch
+        val evidence = controller.latestLearnerEvidence
         val targetName = expected.targetName ?: "object"
+
+        if (evidence != null && evidence.outcome == LearnerOutcome.WRONG_DIRECTION_CONFIRMED) {
+            val title = "Reverse Direction: Move Upward"
+            val explanation = evidence.diagnosticExplanation
+            val actionSteps = listOf(
+                "Wrong direction detected: $explanation",
+                evidence.activeHint ?: "Press 'G' then 'Z' and move mouse UPWARD to increase height.",
+                "Verify that Z location becomes positive before clicking Verify."
+            )
+            return TutorRecommendation(
+                title = title,
+                explanation = explanation,
+                actionSteps = actionSteps,
+                rationale = "Object moved in the reverse direction of the task requirement.",
+                expectedOutcome = "Z location > 0 m (moved upward)",
+                supportingEvidence = listOf("Observed: moved downward", "Expected: move upward (+Z)"),
+                recommendationType = RecommendationType.CORRECT_STATE,
+                confidence = 0.98,
+                requiresVerification = true,
+                suggestedShortcut = "G then Z",
+                targetControlName = targetName
+            )
+        }
+
+        if (evidence != null && evidence.outcome == LearnerOutcome.PROGRESS_OBSERVED) {
+            val title = "Continue Upward (+Z)"
+            val explanation = evidence.diagnosticExplanation
+            val actionSteps = listOf(
+                "Great start! Object moved in the correct direction.",
+                evidence.activeHint ?: "Continue translating upward until target is reached.",
+                "Click 'Verify Action' once the target condition is satisfied."
+            )
+            return TutorRecommendation(
+                title = title,
+                explanation = explanation,
+                actionSteps = actionSteps,
+                rationale = "Meaningful upward progress observed, but threshold not yet met.",
+                expectedOutcome = "State matches ${expected.operation.name} on $targetName.",
+                supportingEvidence = listOf("Observed: upward progress", "Expected: complete threshold"),
+                recommendationType = RecommendationType.RETRY,
+                confidence = 0.95,
+                requiresVerification = true,
+                suggestedShortcut = "G then Z",
+                targetControlName = targetName
+            )
+        }
+
+        if (evidence != null && evidence.outcome == LearnerOutcome.TARGET_MISMATCH) {
+            val title = "Select Target: $targetName"
+            val explanation = evidence.diagnosticExplanation
+            val actionSteps = listOf(
+                explanation,
+                evidence.activeHint ?: "Left-click '$targetName' to select it before performing action.",
+                "Ensure '$targetName' is outlined in orange before verifying."
+            )
+            return TutorRecommendation(
+                title = title,
+                explanation = explanation,
+                actionSteps = actionSteps,
+                rationale = "A different object was interacted with instead of the assigned target.",
+                expectedOutcome = "Target $targetName is active and transformed.",
+                supportingEvidence = listOf("Expected: $targetName", "Observed: wrong target interacted with"),
+                recommendationType = RecommendationType.CORRECT_STATE,
+                confidence = 0.95,
+                requiresVerification = true,
+                targetControlName = targetName
+            )
+        }
+
+        val primary = report.primaryMismatch
 
         if (primary != null) {
             val title = if (isRepeated) {
@@ -487,6 +711,21 @@ class ClosedLoopRecoveryCoordinator(
             confidence = 0.8,
             requiresVerification = true
         )
+    }
+
+    /**
+     * Explicitly captures a baseline for the current step before the learner acts.
+     */
+    suspend fun captureBaseline(): context.VerificationRun? {
+        val activeStep = controller.currentStep ?: return null
+        val expected = activeStep.expectedState ?: inferExpectedStateFromStep(activeStep) ?: return null
+        return try {
+            val run = workflow.captureBaseline(expected)
+            activeBaselineRun = run
+            run
+        } catch (e: Exception) {
+            null
+        }
     }
 
     /**
@@ -588,6 +827,78 @@ class ClosedLoopRecoveryCoordinator(
                     context.ExpectedCondition(context.ExpectedStateField.MODE, expectedValue = "EDIT")
                 )
             )
+            titleAndInstr.contains("move") || titleAndInstr.contains("translate") || titleAndInstr.contains("location") -> {
+                val targetName = when {
+                    titleAndInstr.contains("sphere") -> "Sphere"
+                    titleAndInstr.contains("cube") -> "Cube"
+                    titleAndInstr.contains("camera") -> "Camera"
+                    titleAndInstr.contains("light") -> "Light"
+                    else -> "Cube"
+                }
+                val isUpward = titleAndInstr.contains("up") || titleAndInstr.contains("above") || titleAndInstr.contains("z-axis") || titleAndInstr.contains("vertical")
+                if (isUpward) {
+                    ExpectedState(
+                        operation = VerificationOperation.MODIFY,
+                        targetName = targetName,
+                        targetType = "MESH",
+                        targetProperty = "location.z",
+                        expectedPropertyValue = "> 0",
+                        requiredConditions = listOf(
+                            context.ExpectedCondition(
+                                field = context.ExpectedStateField.OBJECT_EXISTS,
+                                objectName = targetName,
+                                expectedValue = targetName,
+                                required = true
+                            ),
+                            context.ExpectedCondition(
+                                field = context.ExpectedStateField.OBJECT_PROPERTY,
+                                objectName = targetName,
+                                propertyName = "location.z",
+                                expectedValue = "> 0",
+                                required = true
+                            )
+                        )
+                    )
+                } else {
+                    ExpectedState(
+                        operation = VerificationOperation.MODIFY,
+                        targetName = targetName,
+                        targetProperty = "location",
+                        expectedPropertyValue = "!= baseline",
+                        requiredConditions = listOf(
+                            context.ExpectedCondition(
+                                field = context.ExpectedStateField.OBJECT_EXISTS,
+                                objectName = targetName,
+                                expectedValue = targetName,
+                                required = true
+                            ),
+                            context.ExpectedCondition(
+                                field = context.ExpectedStateField.OBJECT_PROPERTY,
+                                objectName = targetName,
+                                propertyName = "location",
+                                expectedValue = "!= baseline",
+                                required = true
+                            )
+                        )
+                    )
+                }
+            }
+            titleAndInstr.contains("delete") || titleAndInstr.contains("remove") -> {
+                val targetName = when {
+                    titleAndInstr.contains("sphere") -> "Sphere"
+                    titleAndInstr.contains("cube") -> "Cube"
+                    titleAndInstr.contains("camera") -> "Camera"
+                    titleAndInstr.contains("light") -> "Light"
+                    else -> "Selected"
+                }
+                ExpectedState(
+                    operation = VerificationOperation.DELETE,
+                    targetName = targetName,
+                    requiredConditions = listOf(
+                        context.ExpectedCondition(context.ExpectedStateField.OBJECT_EXISTS, expectedValue = targetName, objectName = targetName, expectedBoolean = false)
+                    )
+                )
+            }
             titleAndInstr.contains("sphere") -> ExpectedState(
                 operation = VerificationOperation.CREATE,
                 targetName = "Sphere",

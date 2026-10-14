@@ -1,0 +1,6 @@
+=== DETERMINISTIC LOCAL OPERATIONS BENCHMARK ===
+Timestamp: 2026-10-14T10:08:02.726715100Z
+Warm-up Runs: 5, Trial Runs: Planning=20, Persistence Save=10, Persistence Load=10
+Goal Planning (ms): mean=0.04, min=0.03, max=0.06
+Persistence Save (ms): mean=0.84, min=0.65, max=1.07
+Persistence Load (ms): mean=0.63, min=0.53, max=0.91

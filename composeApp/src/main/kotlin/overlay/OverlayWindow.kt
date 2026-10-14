@@ -388,15 +388,20 @@ fun OverlayWindowContent(
             ?: tutorState.adaptiveInstruction?.targetRegion
 
         if (tutorState.screenAssistanceEnabled && !tutorState.isPaused && rawRegion != null) {
-            // If Blender window bounds are known and the region coordinates are window-relative,
+            // If region coordinates are already in screen coordinates, use them directly.
+            // Otherwise, if Blender window bounds are known and coordinates are window-relative,
             // offset the region by Blender's actual window location on the desktop.
             val windowOffset = blenderInfo?.bounds
-            val positionedRegion = if (windowOffset != null && rawRegion.x < windowOffset.width && rawRegion.y < windowOffset.height) {
+            val positionedRegion = if (rawRegion.isScreenCoordinates) {
+                rawRegion
+            } else if (windowOffset != null) {
                 HighlightRegion(
                     x = windowOffset.x.toFloat() + rawRegion.x,
                     y = windowOffset.y.toFloat() + rawRegion.y,
                     width = rawRegion.width,
-                    height = rawRegion.height
+                    height = rawRegion.height,
+                    isScreenCoordinates = true,
+                    directionalIndicator = rawRegion.directionalIndicator
                 )
             } else {
                 rawRegion

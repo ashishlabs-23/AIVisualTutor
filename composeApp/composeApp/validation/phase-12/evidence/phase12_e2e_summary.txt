@@ -1,0 +1,29 @@
+=================================================================
+AIVisualTutor — PHASE 12: RELIABLE GOAL PLANNING AND TASK COVERAGE
+END-TO-END VALIDATION SUMMARY REPORT
+Generated At: 2026-10-14T10:08:02.544435300Z
+=================================================================
+
+1. SCENARIO MATRIX SUMMARY:
+ - Scenario A (Simple Object Creation): PASSED (Simulated Integration)
+ - Scenario B (Compound Modelling Goal): PASSED (Simulated Integration)
+ - Scenario C (Material & Rendering Limitations): PASSED (Simulated Integration)
+ - Scenario D (Missing Mandatory Outcome Detection): PASSED (Simulated Integration)
+ - Scenario E (Invalid Dependency Reference Detection): PASSED (Simulated Integration)
+ - Scenario F (Circular Dependency Graph Detection): PASSED (Simulated Integration)
+ - Scenario G (Targeted Bounded Plan Repair): PASSED (Simulated Integration)
+ - Scenario H (Ambiguous Goal Clarification): PASSED (Simulated Integration)
+ - Scenario I (Partial Execution Non-Completion): PASSED (Simulated Integration)
+ - Scenario J (Active Re-planning Progress Continuity & Stale Rejection): PASSED (Simulated Integration)
+ - Scenario K (Provider Unavailable Deterministic Fallback): PASSED (Simulated Integration)
+ - Scenario L (Phase 11 Recovery Coordinator Integration): PASSED (Simulated Integration)
+
+2. ARCHITECTURAL VALIDATION:
+ - Goal decomposition preserves original learner request and explicit constraints.
+ - Outcome coverage uses structured IDs (targetedOutcomeIds) rather than keyword matching.
+ - Dependency ordering is validated via DFS cycle detection and topological sorting.
+ - Plan repair is bounded (default max 3 attempts) and strictly revalidated.
+ - Execution progress is strictly decoupled from plan validity.
+ - Overall goal completion requires all mandatory outcomes to be verified.
+ - Telemetry capabilities and limitations (e.g. materials, render output) are honestly classified.
+=================================================================

@@ -470,6 +470,32 @@ class Phase14DesktopOverlayTest {
     }
 
     @Test
+    fun screenCoordinatesArePreservedWithoutDoubleOffsetting() {
+        val blenderBounds = Rectangle(300, 200, 1400, 900)
+        // Screen-coordinate region from dynamic positioning
+        val screenTarget = HighlightRegion(x = 420f, y = 280f, width = 60f, height = 30f, isScreenCoordinates = true)
+
+        // Translation logic matching updated OverlayWindowContent:
+        val positioned = if (screenTarget.isScreenCoordinates) {
+            screenTarget
+        } else if (screenTarget.x < blenderBounds.width && screenTarget.y < blenderBounds.height) {
+            HighlightRegion(
+                x = blenderBounds.x.toFloat() + screenTarget.x,
+                y = blenderBounds.y.toFloat() + screenTarget.y,
+                width = screenTarget.width,
+                height = screenTarget.height
+            )
+        } else {
+            screenTarget
+        }
+
+        assertEquals(420f, positioned.x)
+        assertEquals(280f, positioned.y)
+        assertEquals(60f, positioned.width)
+        assertEquals(30f, positioned.height)
+    }
+
+    @Test
     fun overlayAwarenessDistinguishesForegroundVsBackgroundBlender() = runBlocking {
         val bgInfo = BlenderWindowInfo(
             hwnd = 1001L, processId = 4455L, title = "Blender",

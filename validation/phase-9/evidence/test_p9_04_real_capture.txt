@@ -1,6 +1,6 @@
 === Test P9-04: Real Screenshot Capture ===
 Status: PASS
-Captured PNG: C:\Users\HP\AppData\Local\Temp\AIVT_BlenderCapture_ad07b66854b44a32b00eb2ac395efe2a_5330120968261665105.png
-Dimensions: 1366 × 768 px
-File Size: 3130 bytes
-Saved Evidence: D:\AIVisualTutor\AIVisualTutor-main\composeApp\validation\phase-9\evidence\test_p9_04_real_capture.png
+Captured PNG: C:\Users\USER\AppData\Local\Temp\AIVT_BlenderCapture_7cdfa54323a24999acbfe9865b9d0d92_2680798706361356139.png
+Dimensions: 1920 × 1080 px
+File Size: 233112 bytes
+Saved Evidence: C:\Users\USER\Downloads\AIVisualTutor-main\composeApp\validation\phase-9\evidence\test_p9_04_real_capture.png

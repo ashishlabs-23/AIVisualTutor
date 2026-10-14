@@ -64,33 +64,82 @@ fun Arrow(
     }
     val calloutYPx = (targetY - 32f).coerceAtLeast(16f)
 
+    val isZUp = region.directionalIndicator?.axis == models.DirectionalAxis.UP_POSITIVE_Z
+
     Box(modifier = Modifier.fillMaxSize()) {
         // 1. Directional Pointer Arrow
         Canvas(modifier = Modifier.fillMaxSize()) {
-            // Arrow shaft
-            drawLine(
-                color = color,
-                start = Offset(startX, targetY),
-                end = Offset(targetX, targetY),
-                strokeWidth = 3.5f
-            )
+            if (isZUp) {
+                // Vertical upward directional indicator pointing in positive Z direction
+                val arrowTipY = (region.y - 52f).coerceAtLeast(16f)
+                val arrowBaseY = (region.y - 8f).coerceAtLeast(arrowTipY + 20f)
+                val shaftX = region.centerX
 
-            // Arrowhead pointing right or left toward target
-            val headPath = Path().apply {
-                if (placeOnLeft) {
-                    moveTo(targetX, targetY)
-                    lineTo(targetX - 16f, targetY - 8f)
-                    lineTo(targetX - 11f, targetY)
-                    lineTo(targetX - 16f, targetY + 8f)
-                } else {
-                    moveTo(targetX, targetY)
-                    lineTo(targetX + 16f, targetY - 8f)
-                    lineTo(targetX + 11f, targetY)
-                    lineTo(targetX + 16f, targetY + 8f)
+                // Upward glowing shaft
+                drawLine(
+                    color = color,
+                    start = Offset(shaftX, arrowBaseY),
+                    end = Offset(shaftX, arrowTipY),
+                    strokeWidth = 4.0f
+                )
+
+                // Arrowhead pointing UP
+                val headPath = Path().apply {
+                    moveTo(shaftX, arrowTipY)
+                    lineTo(shaftX - 10f, arrowTipY + 14f)
+                    lineTo(shaftX, arrowTipY + 10f)
+                    lineTo(shaftX + 10f, arrowTipY + 14f)
+                    close()
                 }
-                close()
+                drawPath(path = headPath, color = color)
+            } else {
+                // Standard horizontal pointer arrow
+                drawLine(
+                    color = color,
+                    start = Offset(startX, targetY),
+                    end = Offset(targetX, targetY),
+                    strokeWidth = 3.5f
+                )
+
+                val headPath = Path().apply {
+                    if (placeOnLeft) {
+                        moveTo(targetX, targetY)
+                        lineTo(targetX - 16f, targetY - 8f)
+                        lineTo(targetX - 11f, targetY)
+                        lineTo(targetX - 16f, targetY + 8f)
+                    } else {
+                        moveTo(targetX, targetY)
+                        lineTo(targetX + 16f, targetY - 8f)
+                        lineTo(targetX + 11f, targetY)
+                        lineTo(targetX + 16f, targetY + 8f)
+                    }
+                    close()
+                }
+                drawPath(path = headPath, color = color)
             }
-            drawPath(path = headPath, color = color)
+        }
+
+        // 1b. Directional Badge for +Z Up
+        if (isZUp) {
+            val badgeTipY = (region.y - 84f).coerceAtLeast(8f)
+            val badgeX = (region.centerX - 42f).coerceAtLeast(16f)
+            val badgeXDp = with(density) { badgeX.toDp() }
+            val badgeYDp = with(density) { badgeTipY.toDp() }
+
+            Box(
+                modifier = Modifier
+                    .offset(x = badgeXDp, y = badgeYDp)
+                    .background(Color(0xE60F172A), RoundedCornerShape(6.dp))
+                    .border(1.dp, color, RoundedCornerShape(6.dp))
+                    .padding(horizontal = 8.dp, vertical = 3.dp)
+            ) {
+                Text(
+                    text = region.directionalIndicator?.label ?: "▲ +Z Up",
+                    color = color,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.ExtraBold
+                )
+            }
         }
 
         // 2. Guidance Callout Card

@@ -1,6 +1,6 @@
 === Test P9-01: Application and Blender Startup ===
 Status: PASS
-Blender HWND: 1444318
-Process ID: 10772
+Blender HWND: 17434496
+Process ID: 45092
 Title: (Unsaved) - Blender 5.2.2 LTS
-Bounds: java.awt.Rectangle[x=-8,y=-8,width=1382,height=784]
+Bounds: java.awt.Rectangle[x=-8,y=-8,width=1936,height=1096]

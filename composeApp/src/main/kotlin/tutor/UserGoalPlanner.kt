@@ -1,6 +1,8 @@
 package tutor
 
+import context.ExpectedCondition
 import context.ExpectedState
+import context.ExpectedStateField
 import context.VerificationOperation
 import models.ApplicationType
 import models.HighlightRegion
@@ -23,7 +25,11 @@ class UserGoalPlanner(
     val repairEngine: PlanRepairEngine = PlanRepairEngine(validator)
 ) {
 
-    fun planGoal(goalText: String, application: ApplicationType = ApplicationType.BLENDER): UserGoalPlan {
+    fun planGoal(
+        goalText: String,
+        application: ApplicationType = ApplicationType.BLENDER,
+        activeObjectName: String? = null
+    ): UserGoalPlan {
         val trimmed = goalText.trim()
         val normalized = trimmed.lowercase()
 
@@ -38,9 +44,11 @@ class UserGoalPlanner(
             isCompoundMakeCubeAndMove(normalized) -> planMakeCubeAndMove(trimmed)
             isCreateSphere(normalized) -> planCreateSphere(trimmed)
             isCreateCube(normalized) -> planCreateCube(trimmed)
-            isDeleteObject(normalized) -> planDeleteObject(trimmed, normalized)
+            isDeleteObject(normalized) -> planDeleteObject(trimmed, normalized, activeObjectName)
             isRenameObject(normalized) -> planRenameObject(trimmed, normalized)
             isSelectObject(normalized) -> planSelectObject(trimmed, normalized)
+            isRotateObject(normalized) -> planRotateObject(trimmed, normalized)
+            isScaleObject(normalized) -> planScaleObject(trimmed, normalized)
             isMoveOrChangeLocation(normalized) -> planMoveOrChangeLocation(trimmed, normalized)
             else -> planGeneralFallback(trimmed)
         }
@@ -126,6 +134,16 @@ class UserGoalPlanner(
     private fun isMoveOrChangeLocation(text: String): Boolean {
         return text.contains("move") || text.contains("location") || text.contains("translate") ||
             text.contains("position")
+    }
+
+    private fun isRotateObject(text: String): Boolean {
+        return text.contains("rotate") || text.contains("spin") || text.contains("turn") ||
+            text.contains("orientation") || text.contains("upside down") || text.contains("upside_down")
+    }
+
+    private fun isScaleObject(text: String): Boolean {
+        return text.contains("scale") || text.contains("resize") || text.contains("bigger") ||
+            text.contains("smaller") || text.contains("enlarge")
     }
 
     internal fun planCreateSphere(goalText: String): UserGoalPlan {
@@ -389,6 +407,28 @@ class UserGoalPlanner(
                 targetedOutcomeIds = listOf("out_cube_moved"),
                 prerequisiteStepIds = listOf("step_3"),
                 verificationStrategy = VerificationStrategy.AUTHORITATIVE_STATE,
+                expectedState = ExpectedState(
+                    operation = VerificationOperation.MODIFY,
+                    targetName = "Cube",
+                    targetType = "MESH",
+                    targetProperty = "location.z",
+                    expectedPropertyValue = "> 0",
+                    requiredConditions = listOf(
+                        ExpectedCondition(
+                            field = ExpectedStateField.OBJECT_EXISTS,
+                            objectName = "Cube",
+                            expectedValue = "Cube",
+                            required = true
+                        ),
+                        ExpectedCondition(
+                            field = ExpectedStateField.OBJECT_PROPERTY,
+                            objectName = "Cube",
+                            propertyName = "location.z",
+                            expectedValue = "> 0",
+                            required = true
+                        )
+                    )
+                ),
                 conceptualHint = "Press G followed by Z to translate along the vertical axis.",
                 fallbackHint = "Alternatively, open the Transform panel (press N) and increase the Z Location value.",
                 reflectionQuestion = "Which key constraint moves objects along the vertical axis in Blender?"
@@ -487,7 +527,29 @@ class UserGoalPlanner(
                 targetControlName = "3D Viewport",
                 targetedOutcomeIds = listOf("out_sphere_moved"),
                 prerequisiteStepIds = listOf("step_2"),
-                verificationStrategy = VerificationStrategy.AUTHORITATIVE_STATE
+                verificationStrategy = VerificationStrategy.AUTHORITATIVE_STATE,
+                expectedState = ExpectedState(
+                    operation = VerificationOperation.MODIFY,
+                    targetName = "Sphere",
+                    targetType = "MESH",
+                    targetProperty = "location.z",
+                    expectedPropertyValue = "> 0",
+                    requiredConditions = listOf(
+                        ExpectedCondition(
+                            field = ExpectedStateField.OBJECT_EXISTS,
+                            objectName = "Sphere",
+                            expectedValue = "Sphere",
+                            required = true
+                        ),
+                        ExpectedCondition(
+                            field = ExpectedStateField.OBJECT_PROPERTY,
+                            objectName = "Sphere",
+                            propertyName = "location.z",
+                            expectedValue = "> 0",
+                            required = true
+                        )
+                    )
+                )
             )
         )
 
@@ -594,15 +656,15 @@ class UserGoalPlanner(
         )
     }
 
-    private fun planDeleteObject(goalText: String, normalized: String): UserGoalPlan {
-        val targetName = extractTargetObjectName(normalized) ?: "Cube"
+    private fun planDeleteObject(goalText: String, normalized: String, activeObjectName: String? = null): UserGoalPlan {
+        val targetName = activeObjectName ?: extractTargetObjectName(normalized) ?: "Selected"
         val planId = UUID.randomUUID().toString()
         val outcomes = listOf(
             RequiredOutcome(
                 id = "out_delete_$targetName",
-                description = "Object '$targetName' is deleted from the scene",
+                description = if (targetName.equals("Selected", ignoreCase = true)) "Selected object is deleted from the scene" else "Object '$targetName' is deleted from the scene",
                 importance = OutcomeRequirementLevel.MANDATORY,
-                expectedFinalCondition = "'$targetName' does not exist in scene",
+                expectedFinalCondition = if (targetName.equals("Selected", ignoreCase = true)) "Selected object does not exist in scene" else "'$targetName' does not exist in scene",
                 verificationStrategy = VerificationStrategy.AUTHORITATIVE_STATE
             )
         )
@@ -612,14 +674,27 @@ class UserGoalPlanner(
                 stepId = "step_1",
                 stepIndex = 1,
                 title = "Select Object to Delete",
-                instruction = "Left-click '$targetName' in the 3D Viewport or click it in the Outliner.",
+                instruction = if (targetName.equals("Selected", ignoreCase = true)) {
+                    "Left-click the object to delete in the 3D Viewport or click it in the Outliner."
+                } else {
+                    "Left-click '$targetName' in the 3D Viewport or click it in the Outliner."
+                },
                 description = "Select the object you want to remove.",
-                targetControlName = targetName,
+                targetControlName = if (targetName.equals("Selected", ignoreCase = true)) "Object" else targetName,
                 targetedOutcomeIds = listOf("out_delete_$targetName"),
                 prerequisiteStepIds = emptyList(),
                 verificationStrategy = VerificationStrategy.AUTHORITATIVE_STATE,
+                expectedState = ExpectedState(
+                    operation = VerificationOperation.SELECT,
+                    targetName = targetName,
+                    expectedSelection = true
+                ),
                 conceptualHint = "Click the object in the Outliner on the right to select it reliably.",
-                fallbackHint = "Ensure '$targetName' has an orange outline indicating it is selected.",
+                fallbackHint = if (targetName.equals("Selected", ignoreCase = true)) {
+                    "Ensure the object has an orange outline indicating it is selected."
+                } else {
+                    "Ensure '$targetName' has an orange outline indicating it is selected."
+                },
                 reflectionQuestion = "How do you select an object before deleting it?"
             ),
             UserGoalPlanStep(
@@ -627,7 +702,11 @@ class UserGoalPlanner(
                 stepIndex = 2,
                 title = "Delete Object",
                 instruction = "Press X or Delete, then click Delete to confirm.",
-                description = "Remove '$targetName' from the scene.",
+                description = if (targetName.equals("Selected", ignoreCase = true)) {
+                    "Remove the selected object from the scene."
+                } else {
+                    "Remove '$targetName' from the scene."
+                },
                 targetControlName = "Delete",
                 targetedOutcomeIds = listOf("out_delete_$targetName"),
                 prerequisiteStepIds = listOf("step_1"),
@@ -852,6 +931,27 @@ class UserGoalPlanner(
                         targetedOutcomeIds = listOf(outcome.id),
                         prerequisiteStepIds = listOf("step_1"),
                         verificationStrategy = VerificationStrategy.AUTHORITATIVE_STATE,
+                        expectedState = ExpectedState(
+                            operation = VerificationOperation.MODIFY,
+                            targetName = targetName,
+                            targetProperty = "location",
+                            expectedPropertyValue = "!= baseline",
+                            requiredConditions = listOf(
+                                ExpectedCondition(
+                                    field = ExpectedStateField.OBJECT_EXISTS,
+                                    objectName = targetName,
+                                    expectedValue = targetName,
+                                    required = true
+                                ),
+                                ExpectedCondition(
+                                    field = ExpectedStateField.OBJECT_PROPERTY,
+                                    objectName = targetName,
+                                    propertyName = "location",
+                                    expectedValue = "!= baseline",
+                                    required = true
+                                )
+                            )
+                        ),
                         conceptualHint = "Press G to enter Grab/Move mode, move the mouse, then left-click.",
                         fallbackHint = "Use G followed by X, Y, or Z to constrain movement along an axis.",
                         reflectionQuestion = "Which key starts the Move (Grab) operator in Blender?"
@@ -859,6 +959,187 @@ class UserGoalPlanner(
                 )
             )
         }
+    }
+
+    internal fun planRotateObject(goalText: String, normalized: String): UserGoalPlan {
+        val targetName = extractTargetObjectName(normalized) ?: "Cube"
+        val isUpsideDown = normalized.contains("upside down") || normalized.contains("upside_down") || normalized.contains("invert")
+        val planId = UUID.randomUUID().toString()
+
+        val outcome = RequiredOutcome(
+            id = "out_rotate_$targetName",
+            description = if (isUpsideDown) "Object '$targetName' is rotated upside down" else "Object '$targetName' is rotated",
+            importance = OutcomeRequirementLevel.MANDATORY,
+            expectedFinalCondition = if (isUpsideDown) "Rotation == upside down" else "Rotation != baseline",
+            verificationStrategy = VerificationStrategy.AUTHORITATIVE_STATE
+        )
+
+        val rotateExpectedValue = if (isUpsideDown) "upside_down" else "!= baseline"
+        val rotateInstruction = if (isUpsideDown) {
+            "Press R to rotate '$targetName' upside down (e.g., press R, then X or Y, type 180, and press Enter)."
+        } else {
+            "Press R to rotate '$targetName', move your mouse, and left-click to confirm."
+        }
+
+        return UserGoalPlan(
+            goalText = goalText,
+            application = ApplicationType.BLENDER,
+            planId = planId,
+            requiredOutcomes = listOf(outcome),
+            steps = listOf(
+                UserGoalPlanStep(
+                    stepId = "step_1",
+                    stepIndex = 1,
+                    title = "Select $targetName",
+                    instruction = "Select '$targetName' in the 3D Viewport or Outliner.",
+                    description = "Ensure '$targetName' is selected for transformation.",
+                    targetControlName = targetName,
+                    targetedOutcomeIds = listOf(outcome.id),
+                    prerequisiteStepIds = emptyList(),
+                    verificationStrategy = VerificationStrategy.AUTHORITATIVE_STATE,
+                    expectedState = ExpectedState(
+                        operation = VerificationOperation.SELECT,
+                        targetName = targetName,
+                        expectedSelection = true,
+                        requiredConditions = listOf(
+                            ExpectedCondition(
+                                field = ExpectedStateField.OBJECT_EXISTS,
+                                objectName = targetName,
+                                expectedValue = targetName,
+                                required = true
+                            ),
+                            ExpectedCondition(
+                                field = ExpectedStateField.OBJECT_SELECTED,
+                                objectName = targetName,
+                                expectedBoolean = true,
+                                required = true
+                            )
+                        )
+                    ),
+                    conceptualHint = "Click '$targetName' in the 3D Viewport to outline it in orange.",
+                    fallbackHint = "Select '$targetName' from the top-right Outliner list."
+                ),
+                UserGoalPlanStep(
+                    stepId = "step_2",
+                    stepIndex = 2,
+                    title = if (isUpsideDown) "Rotate $targetName Upside Down" else "Rotate $targetName",
+                    instruction = rotateInstruction,
+                    description = if (isUpsideDown) "Rotate '$targetName' so its top face points downward." else "Rotate '$targetName' around an axis.",
+                    targetControlName = "3D Viewport",
+                    targetedOutcomeIds = listOf(outcome.id),
+                    prerequisiteStepIds = listOf("step_1"),
+                    verificationStrategy = VerificationStrategy.AUTHORITATIVE_STATE,
+                    expectedState = ExpectedState(
+                        operation = VerificationOperation.MODIFY,
+                        targetName = targetName,
+                        targetProperty = "rotation",
+                        expectedPropertyValue = rotateExpectedValue,
+                        requiredConditions = listOf(
+                            ExpectedCondition(
+                                field = ExpectedStateField.OBJECT_EXISTS,
+                                objectName = targetName,
+                                expectedValue = targetName,
+                                required = true
+                            ),
+                            ExpectedCondition(
+                                field = ExpectedStateField.OBJECT_PROPERTY,
+                                objectName = targetName,
+                                propertyName = "rotation",
+                                expectedValue = rotateExpectedValue,
+                                required = true
+                            )
+                        )
+                    ),
+                    conceptualHint = "Press 'R' for Rotate. You can press X, Y, or Z to lock rotation to an axis.",
+                    fallbackHint = "Type 180 after pressing R and an axis key to rotate 180 degrees exactly."
+                )
+            )
+        )
+    }
+
+    internal fun planScaleObject(goalText: String, normalized: String): UserGoalPlan {
+        val targetName = extractTargetObjectName(normalized) ?: "Cube"
+        val planId = UUID.randomUUID().toString()
+
+        val outcome = RequiredOutcome(
+            id = "out_scale_$targetName",
+            description = "Object '$targetName' is scaled",
+            importance = OutcomeRequirementLevel.MANDATORY,
+            expectedFinalCondition = "Scale != baseline",
+            verificationStrategy = VerificationStrategy.AUTHORITATIVE_STATE
+        )
+
+        return UserGoalPlan(
+            goalText = goalText,
+            application = ApplicationType.BLENDER,
+            planId = planId,
+            requiredOutcomes = listOf(outcome),
+            steps = listOf(
+                UserGoalPlanStep(
+                    stepId = "step_1",
+                    stepIndex = 1,
+                    title = "Select $targetName",
+                    instruction = "Select '$targetName' in the 3D Viewport or Outliner.",
+                    description = "Ensure '$targetName' is selected for transformation.",
+                    targetControlName = targetName,
+                    targetedOutcomeIds = listOf(outcome.id),
+                    prerequisiteStepIds = emptyList(),
+                    verificationStrategy = VerificationStrategy.AUTHORITATIVE_STATE,
+                    expectedState = ExpectedState(
+                        operation = VerificationOperation.SELECT,
+                        targetName = targetName,
+                        expectedSelection = true,
+                        requiredConditions = listOf(
+                            ExpectedCondition(
+                                field = ExpectedStateField.OBJECT_EXISTS,
+                                objectName = targetName,
+                                expectedValue = targetName,
+                                required = true
+                            ),
+                            ExpectedCondition(
+                                field = ExpectedStateField.OBJECT_SELECTED,
+                                objectName = targetName,
+                                expectedBoolean = true,
+                                required = true
+                            )
+                        )
+                    )
+                ),
+                UserGoalPlanStep(
+                    stepId = "step_2",
+                    stepIndex = 2,
+                    title = "Scale $targetName",
+                    instruction = "Press S to scale '$targetName', move your mouse, and left-click to confirm.",
+                    description = "Change the dimensions of '$targetName'.",
+                    targetControlName = "3D Viewport",
+                    targetedOutcomeIds = listOf(outcome.id),
+                    prerequisiteStepIds = listOf("step_1"),
+                    verificationStrategy = VerificationStrategy.AUTHORITATIVE_STATE,
+                    expectedState = ExpectedState(
+                        operation = VerificationOperation.MODIFY,
+                        targetName = targetName,
+                        targetProperty = "scale",
+                        expectedPropertyValue = "!= baseline",
+                        requiredConditions = listOf(
+                            ExpectedCondition(
+                                field = ExpectedStateField.OBJECT_EXISTS,
+                                objectName = targetName,
+                                expectedValue = targetName,
+                                required = true
+                            ),
+                            ExpectedCondition(
+                                field = ExpectedStateField.OBJECT_PROPERTY,
+                                objectName = targetName,
+                                propertyName = "scale",
+                                expectedValue = "!= baseline",
+                                required = true
+                            )
+                        )
+                    ),
+                    conceptualHint = "Press 'S' to enter Scale mode, move mouse outward to enlarge, then left-click."
+                )
+            )
+        )
     }
 
     private fun planGeneralFallback(goalText: String): UserGoalPlan {
@@ -933,7 +1214,7 @@ class UserGoalPlanner(
             else -> {
                 val match = Regex("""(?:delete|remove|select|move)\s+(?:the\s+)?([a-zA-Z0-9_-]+)""").find(normalized)
                 val candidate = match?.groupValues?.get(1)?.trim()
-                if (candidate != null && candidate !in setOf("object", "the", "mesh", "it", "selected")) {
+                if (candidate != null && candidate !in setOf("object", "the", "mesh", "it", "selected", "active")) {
                     candidate.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
                 } else null
             }

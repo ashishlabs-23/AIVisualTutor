@@ -1,0 +1,6 @@
+=== SCENARIO 6: PERSISTENCE FAULT TOLERANCE ===
+Timestamp: 2026-10-14T10:08:02.581434100Z
+Missing file handled safely: true
+Empty file handled safely: true
+Corrupted file handled safely: true
+Unsupported schema version 50 handled safely: true

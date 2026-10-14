@@ -1,0 +1,15 @@
+=== SCENARIO B: COMPOUND MODELLING GOAL ===
+Timestamp: 2026-10-14T10:08:02.542433500Z
+Learner Goal: Create a sphere, scale it, and move it above the ground plane.
+Decomposed Outcomes:
+ - out_mode_obj: 'Blender is in Object Mode' (Dependencies: [])
+ - out_sphere_created: 'A UV Sphere mesh object exists in the scene' (Dependencies: [out_mode_obj])
+ - out_sphere_scaled: 'The sphere is scaled to desired proportions' (Dependencies: [out_sphere_created])
+ - out_sphere_moved: 'The sphere is moved above the ground plane' (Dependencies: [out_sphere_created])
+Ordered Steps:
+ - Step 1: 'Ensure Object Mode' (Targets: [out_mode_obj], Prereqs: [])
+ - Step 2: 'Add UV Sphere' (Targets: [out_sphere_created], Prereqs: [step_1])
+ - Step 3: 'Scale the Sphere' (Targets: [out_sphere_scaled], Prereqs: [step_2])
+ - Step 4: 'Move Sphere Above Ground' (Targets: [out_sphere_moved], Prereqs: [step_2])
+Validation Status: VALID
+Mandatory Outcomes Covered: 4/4

@@ -12,9 +12,12 @@ import java.awt.image.BufferedImage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import models.ApplicationType
 import models.HighlightRegion
 import models.SessionContext
@@ -24,6 +27,7 @@ import models.TutorStep
 import pedagogy.AdaptivePedagogicalEngine
 import pedagogy.GuidanceStage
 import pedagogy.LearningTask
+import pedagogy.PedagogicalOutcome
 import java.util.UUID
 
 /**
@@ -32,13 +36,22 @@ import java.util.UUID
  */
 class TutorController(
     val pedagogicalEngine: AdaptivePedagogicalEngine = AdaptivePedagogicalEngine(),
-    val targetPositioningService: DynamicTargetPositioningService = DynamicTargetPositioningService(),
+    targetPositioningService: DynamicTargetPositioningService? = null,
     val goalPlanner: UserGoalPlanner = UserGoalPlanner(),
     loadMockTutorialByDefault: Boolean = false,
     screenshotHelpCoordinatorFactory: ((TutorController) -> ScreenshotHelpCoordinator)? = null,
-    recoveryCoordinatorFactory: ((TutorController) -> ClosedLoopRecoveryCoordinator)? = null
+    recoveryCoordinatorFactory: ((TutorController) -> ClosedLoopRecoveryCoordinator)? = null,
+    val blenderAdapter: adapter.BlenderApplicationAdapter = adapter.BlenderApplicationAdapter()
 ) {
+    val targetPositioningService: DynamicTargetPositioningService =
+        targetPositioningService ?: DynamicTargetPositioningService(blenderAdapter = blenderAdapter)
+
     private val controllerScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    var lastPositionResult by mutableStateOf<TargetPositionResult?>(null)
+        private set
+
+    private var liveTrackingJob: kotlinx.coroutines.Job? = null
 
     val screenshotHelpCoordinator: ScreenshotHelpCoordinator =
         screenshotHelpCoordinatorFactory?.invoke(this) ?: ScreenshotHelpCoordinator(this)
@@ -121,7 +134,15 @@ class TutorController(
         if (trimmed.isBlank()) {
             return null
         }
-        val plan = goalPlanner.planGoal(trimmed, ApplicationType.BLENDER)
+        val liveObs = recoveryCoordinator.workflow.lastObservation
+            ?: runBlocking { kotlin.runCatching { recoveryCoordinator.workflow.provider.observe() }.getOrNull() }
+        val activeObjectName = liveObs?.selectedObjects?.firstOrNull()
+            ?: liveObs?.objects?.find { it.selected == true }?.name
+            ?: liveObs?.objects?.find { it.type == "MESH" }?.name
+            ?: sessionContext.lastObservedState?.selectedObjects?.firstOrNull()
+            ?: sessionContext.lastObservedState?.objects?.find { it.type == "MESH" }?.name
+
+        val plan = goalPlanner.planGoal(trimmed, ApplicationType.BLENDER, activeObjectName = activeObjectName)
         activePlan = plan
         goalProgressState = goalProgressTracker.initializePlan(plan, preserveExistingProgress = false)
 
@@ -148,6 +169,9 @@ class TutorController(
             )
             recoveryCoordinator.reset()
             recoveryCoordinator.onStepChanged(0)
+            if (state.screenAssistanceEnabled) {
+                controllerScope.launch { resolveDynamicTarget() }
+            }
         }
 
         return plan
@@ -162,7 +186,15 @@ class TutorController(
         if (trimmed.isBlank()) {
             return null
         }
-        val plan = goalPlanner.planGoal(trimmed, ApplicationType.BLENDER)
+        val liveObs = recoveryCoordinator.workflow.lastObservation
+            ?: runBlocking { kotlin.runCatching { recoveryCoordinator.workflow.provider.observe() }.getOrNull() }
+        val activeObjectName = liveObs?.selectedObjects?.firstOrNull()
+            ?: liveObs?.objects?.find { it.selected == true }?.name
+            ?: liveObs?.objects?.find { it.type == "MESH" }?.name
+            ?: sessionContext.lastObservedState?.selectedObjects?.firstOrNull()
+            ?: sessionContext.lastObservedState?.objects?.find { it.type == "MESH" }?.name
+
+        val plan = goalPlanner.planGoal(trimmed, ApplicationType.BLENDER, activeObjectName = activeObjectName)
         activePlan = plan
         goalProgressState = goalProgressTracker.replan(plan)
         recoveryCoordinator.reset()
@@ -188,6 +220,9 @@ class TutorController(
                 competenceEstimate = pedagogicalEngine.state.competenceEstimate
             )
             recoveryCoordinator.onStepChanged(targetIndex)
+            if (state.screenAssistanceEnabled) {
+                controllerScope.launch { resolveDynamicTarget() }
+            }
         }
 
         return plan
@@ -198,6 +233,10 @@ class TutorController(
      * (or restores mock tutorial if demo mode was loaded).
      */
     fun clearUserGoal() {
+        stopLiveTargetTracking()
+        setHighlight(null)
+        adaptiveTutoringEngine.resetHintLevelForStep(0)
+        latestLearnerEvidence = null
         if (activePlan == null) return
         activePlan = null
         goalProgressTracker.initializePlan(UserGoalPlan("", steps = emptyList()))
@@ -292,6 +331,9 @@ class TutorController(
     }
 
     val diagnosticEngine: context.StateMismatchDiagnosticEngine = context.StateMismatchDiagnosticEngine()
+    val adaptiveTutoringEngine: AdaptiveTutoringEngine = AdaptiveTutoringEngine()
+    var latestLearnerEvidence: LearnerStepEvidence? = null
+        internal set
 
     fun recordObservedState(observedState: context.ObservedState) {
         sessionContext = sessionContext.copy(lastObservedState = observedState)
@@ -321,10 +363,11 @@ class TutorController(
 
         // If the verified task corresponds to the current step, update UI adaptive instruction
         val step = currentStep
+        val effectiveExpected = step?.expectedState ?: expected
         val isCurrentStepTask = step != null && resolvedTask.taskId == step.taskId
         val isCurrentStepOperation = step != null && (
-            (step.expectedState != null && step.expectedState?.operation == result.operation) ||
-            (step.expectedState == null && expected == null)
+            (effectiveExpected != null && effectiveExpected.operation == result.operation) ||
+            (step.expectedState == null && (expected == null || expected.operation == context.VerificationOperation.UNKNOWN))
         )
         val isVerifiedCurrentStep = isCurrentStepTask || isCurrentStepOperation
 
@@ -409,7 +452,7 @@ class TutorController(
                 )
             }
             if (state.currentStepIndex < stepsForCurrentApp().lastIndex) {
-                nextStep()
+                nextStep(isAutoAdvance = true)
             }
         } else if (result.status == context.VerificationStatus.FAILURE && isVerifiedCurrentStep) {
             if (plan != null) {
@@ -439,23 +482,26 @@ class TutorController(
     }
 
     /**
-     * Requests a conceptual hint for the active step, transitioning guidance to STAGE_2_CONCEPTUAL_HINT
+     * Requests a progressive conceptual hint for the active step, transitioning guidance to STAGE_2_CONCEPTUAL_HINT
      * and updating active instruction and overlay markup with hint text.
      */
     fun requestHint(): String? {
         val step = currentStep ?: return null
         val task = step.toLearningTask()
-        val hintText = step.conceptualHint?.takeIf { it.isNotBlank() } ?: step.instruction
+        val stepIndex = state.currentStepIndex
+        val hintBundle = adaptiveTutoringEngine.getProgressiveHintBundle(step)
+        val level = adaptiveTutoringEngine.advanceHintLevelForStep(stepIndex)
+        val hintText = hintBundle.getHintForLevel(level)
         val targetRegion = step.targetRegion ?: state.currentHighlight
 
         val hintInstruction = pedagogy.AdaptiveInstruction(
             taskId = task.taskId,
             stage = GuidanceStage.STAGE_2_CONCEPTUAL_HINT,
-            instructionText = "💡 Hint: $hintText",
+            instructionText = "💡 Hint (Level $level): $hintText",
             targetControlName = step.targetControlName ?: step.title,
             targetRegion = targetRegion,
             conceptSummary = hintText,
-            adaptationRationale = "Learner requested a hint for '${step.title}'."
+            adaptationRationale = "Learner requested a hint for '${step.title}' (Progressed to Level $level)."
         )
 
         state = state.copy(
@@ -463,7 +509,7 @@ class TutorController(
             adaptiveInstruction = hintInstruction,
             currentHighlight = targetRegion,
             screenAssistanceEnabled = true,
-            adaptationReason = "💡 Hint: $hintText"
+            adaptationReason = "💡 Hint (Level $level): $hintText"
         )
         mutableEvents.tryEmit(TutorEvent.GuidanceStageChanged(GuidanceStage.STAGE_2_CONCEPTUAL_HINT))
         return hintText
@@ -534,7 +580,8 @@ class TutorController(
             val opMatches = step.expectedState != null && step.expectedState?.operation == result.operation
             val expectedMatches = expected != null && step.expectedState == expected
             val bothNull = expected == null && step.expectedState == null
-            if (opMatches || expectedMatches || bothNull) {
+            val informationalMatches = step.expectedState == null && (expected == null || expected.operation == context.VerificationOperation.UNKNOWN)
+            if (opMatches || expectedMatches || bothNull || informationalMatches) {
                 return step.toLearningTask()
             }
         }
@@ -608,7 +655,7 @@ class TutorController(
         mutableEvents.tryEmit(TutorEvent.ApplicationChanged(application))
     }
 
-    fun nextStep() {
+    fun nextStep(isAutoAdvance: Boolean = false) {
         val steps = stepsForCurrentApp()
         if (steps.isEmpty()) return
         val fromIndex = state.currentStepIndex
@@ -645,16 +692,21 @@ class TutorController(
             visualContext = sessionContext.lastVisualContext
         )
 
+        val isCompleted = isStepIndexCompleted(nextIndex)
         state = state.copy(
             currentStepIndex = nextIndex,
             guidanceStage = adaptiveInstruction.stage,
             adaptiveInstruction = adaptiveInstruction,
+            lastPedagogicalOutcome = if (isCompleted) PedagogicalOutcome.VERIFIED_SUCCESS else if (isAutoAdvance) state.lastPedagogicalOutcome else null,
             currentHighlight = adaptiveInstruction.targetRegion ?: nextStep.targetRegion,
-            adaptationReason = pedagogicalEngine.state.adaptationReason,
+            adaptationReason = if (isCompleted || isAutoAdvance) state.adaptationReason else null,
             competenceEstimate = pedagogicalEngine.state.competenceEstimate
         )
         recoveryCoordinator.onStepChanged(nextIndex)
         mutableEvents.tryEmit(TutorEvent.StepAdvanced(fromIndex, nextIndex))
+        if (state.screenAssistanceEnabled) {
+            controllerScope.launch { resolveDynamicTarget() }
+        }
     }
 
     fun previousStep() {
@@ -671,16 +723,21 @@ class TutorController(
             visualContext = sessionContext.lastVisualContext
         )
 
+        val isCompleted = isStepIndexCompleted(prevIndex)
         state = state.copy(
             currentStepIndex = prevIndex,
             guidanceStage = adaptiveInstruction.stage,
             adaptiveInstruction = adaptiveInstruction,
+            lastPedagogicalOutcome = if (isCompleted) PedagogicalOutcome.VERIFIED_SUCCESS else null,
             currentHighlight = adaptiveInstruction.targetRegion ?: prevStep.targetRegion,
-            adaptationReason = pedagogicalEngine.state.adaptationReason,
+            adaptationReason = if (isCompleted) state.adaptationReason else null,
             competenceEstimate = pedagogicalEngine.state.competenceEstimate
         )
         recoveryCoordinator.onStepChanged(prevIndex)
         mutableEvents.tryEmit(TutorEvent.StepRegressed(fromIndex, prevIndex))
+        if (state.screenAssistanceEnabled) {
+            controllerScope.launch { resolveDynamicTarget() }
+        }
     }
 
     /**
@@ -740,6 +797,9 @@ class TutorController(
         } else {
             mutableEvents.tryEmit(TutorEvent.StepRegressed(fromIndex, clamped))
         }
+        if (state.screenAssistanceEnabled) {
+            controllerScope.launch { resolveDynamicTarget() }
+        }
     }
 
     /**
@@ -785,6 +845,44 @@ class TutorController(
         val newEnabled = !state.screenAssistanceEnabled
         state = state.copy(screenAssistanceEnabled = newEnabled)
         mutableEvents.tryEmit(TutorEvent.AssistanceToggled(newEnabled))
+        if (newEnabled) {
+            startLiveTargetTracking()
+            controllerScope.launch { resolveDynamicTarget() }
+        } else {
+            stopLiveTargetTracking()
+            setHighlight(null)
+        }
+    }
+
+    fun startLiveTargetTracking(intervalMillis: Long = 150L) {
+        liveTrackingJob?.cancel()
+        liveTrackingJob = controllerScope.launch {
+            var lastVersion: Long = -1L
+            var lastCounter: Long = -1L
+            while (isActive) {
+                if (state.screenAssistanceEnabled && !state.isPaused) {
+                    val ver = blenderAdapter.fetchVersion()
+                    if (ver is adapter.AdapterVersionResult.Success) {
+                        val changed = ver.info.snapshotVersion != lastVersion || ver.info.eventCounter != lastCounter
+                        if (changed) {
+                            lastVersion = ver.info.snapshotVersion
+                            lastCounter = ver.info.eventCounter
+                            resolveDynamicTarget()
+                        }
+                    } else if (ver is adapter.AdapterVersionResult.Unavailable) {
+                        if (lastPositionResult?.source == context.TargetLocalizationSource.BLENDER_3D_PROJECTION) {
+                            setHighlight(null)
+                        }
+                    }
+                }
+                kotlinx.coroutines.delay(intervalMillis)
+            }
+        }
+    }
+
+    fun stopLiveTargetTracking() {
+        liveTrackingJob?.cancel()
+        liveTrackingJob = null
     }
 
     fun setHighlight(region: HighlightRegion?) {
@@ -793,7 +891,7 @@ class TutorController(
     }
 
     /**
-     * Resolves the target highlight dynamically using layered UIA -> OCR -> Visual Grounding -> Validation
+     * Resolves the target highlight dynamically using layered 3D projection -> UIA -> OCR -> Visual Grounding -> Validation
      * against the target application window, updating the active overlay highlight in real-time.
      */
     suspend fun resolveDynamicTarget(
@@ -812,8 +910,11 @@ class TutorController(
             appContext = appContext,
             screenshot = screenshot
         )
+        lastPositionResult = result
         if (result.region != null) {
             setHighlight(result.region)
+        } else if (result.source == context.TargetLocalizationSource.BLENDER_3D_PROJECTION) {
+            setHighlight(null)
         }
         return result
     }

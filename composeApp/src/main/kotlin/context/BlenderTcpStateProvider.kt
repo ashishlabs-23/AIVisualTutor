@@ -95,7 +95,7 @@ class BlenderTcpStateProvider(
                 return unavailable(BlenderObservationStatus.FAILED, "Blender adapter declared $expectedCount objects but stream terminated after $index records.")
             }
             val objectFields = line.split('\t')
-            if (objectFields.size != OBJECT_FIELD_COUNT || objectFields[0] != "OBJECT") {
+            if (objectFields.size < OBJECT_FIELD_COUNT || objectFields[0] != "OBJECT") {
                 return unavailable(BlenderObservationStatus.FAILED, "Blender adapter returned a malformed object record.")
             }
             val id = objectFields[1].decodeBase64()?.takeIf(String::isNotBlank)
@@ -116,13 +116,56 @@ class BlenderTcpStateProvider(
             if (complete && (selected == null || location.isNullOrBlank())) {
                 return unavailable(BlenderObservationStatus.FAILED, "Blender adapter marked an object complete but omitted required properties.")
             }
+            val meta = mutableMapOf<String, String>()
+            if (!location.isNullOrBlank()) {
+                meta["location"] = location
+                val parts = location.split(",")
+                if (parts.size == 3) {
+                    meta["location.x"] = parts[0].trim()
+                    meta["location.y"] = parts[1].trim()
+                    meta["location.z"] = parts[2].trim()
+                    meta["x"] = parts[0].trim()
+                    meta["y"] = parts[1].trim()
+                    meta["z"] = parts[2].trim()
+                }
+            }
+            if (objectFields.size >= 8) {
+                val rot = objectFields[7].decodeBase64()
+                if (!rot.isNullOrBlank()) {
+                    meta["rotation"] = rot
+                    val parts = rot.split(",")
+                    if (parts.size == 3) {
+                        meta["rotation.x"] = parts[0].trim()
+                        meta["rotation.y"] = parts[1].trim()
+                        meta["rotation.z"] = parts[2].trim()
+                    }
+                }
+            }
+            if (objectFields.size >= 9) {
+                val scale = objectFields[8].decodeBase64()
+                if (!scale.isNullOrBlank()) {
+                    meta["scale"] = scale
+                    val parts = scale.split(",")
+                    if (parts.size == 3) {
+                        meta["scale.x"] = parts[0].trim()
+                        meta["scale.y"] = parts[1].trim()
+                        meta["scale.z"] = parts[2].trim()
+                    }
+                }
+            }
+            if (objectFields.size >= 10) {
+                val vis = objectFields[9].decodeBase64()
+                if (!vis.isNullOrBlank()) {
+                    meta["visible"] = vis
+                }
+            }
             objects += ObjectObservation(
                 id = id,
                 name = name,
                 type = type,
                 sceneName = objectSceneName,
                 selected = selected,
-                metadata = location?.let { mapOf("location" to it) } ?: emptyMap()
+                metadata = meta
             )
         }
         if (input.readUtf8Line() != "END") {

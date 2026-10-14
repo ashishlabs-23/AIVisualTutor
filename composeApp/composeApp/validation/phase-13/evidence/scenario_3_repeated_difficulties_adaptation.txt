@@ -1,0 +1,5 @@
+=== SCENARIO 3: REPEATED VERIFIED DIFFICULTIES & ADAPTATION ===
+Timestamp: 2026-10-14T10:08:02.574435Z
+Failure 1: HasDifficulty=false, Strategy=NORMAL_GUIDANCE
+Failure 2 (Repeated): HasDifficulty=true, Strategy=DETAILED_INSTRUCTION
+Rationale: Increased support from Direct Guidance to Direct Guidance after 2 consecutive verified failures on 'Add Cube Primitive'. Repeated verified difficulty (ModeMismatch) detected; adapting instruction strategy to DETAILED_INSTRUCTION.

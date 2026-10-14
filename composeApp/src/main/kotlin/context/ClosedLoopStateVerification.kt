@@ -38,7 +38,8 @@ data class ExpectedState(
     val targetMode: String? = null,
     val targetProperty: String? = null,
     val expectedPropertyValue: String? = null,
-    val requiredConditions: List<ExpectedCondition> = emptyList()
+    val requiredConditions: List<ExpectedCondition> = emptyList(),
+    val allowSatisfiedInitialState: Boolean = false
 ) {
     fun validate(): List<String> {
         val errors = mutableListOf<String>()
@@ -52,6 +53,17 @@ data class ExpectedState(
         }
         if (operation == VerificationOperation.MODIFY && targetName.isNullOrBlank() && targetMode.isNullOrBlank()) {
             errors += "targetName or targetMode is required for MODIFY verification"
+        }
+        if (operation == VerificationOperation.MODIFY && targetMode.isNullOrBlank() &&
+            targetProperty.isNullOrBlank() && requiredConditions.none { it.field == ExpectedStateField.OBJECT_PROPERTY }
+        ) {
+            errors += "targetProperty or OBJECT_PROPERTY condition is required for object MODIFY verification"
+        }
+        if (operation == VerificationOperation.MODIFY && targetMode.isNullOrBlank() &&
+            !targetProperty.isNullOrBlank() && expectedPropertyValue.isNullOrBlank() &&
+            requiredConditions.none { it.field == ExpectedStateField.OBJECT_PROPERTY }
+        ) {
+            errors += "expectedPropertyValue is required when targetProperty is specified"
         }
         requiredConditions.forEach { condition ->
             when (condition.field) {
@@ -258,6 +270,128 @@ class UnavailableBlenderStateProvider : BlenderStateProvider {
     )
 }
 
+fun extractObjectProperty(metadata: Map<String, String>, property: String): String? {
+    metadata[property]?.let { return it }
+    val normProp = property.lowercase().trim()
+
+    // 1. Location
+    val loc = metadata["location"]
+    if (loc != null) {
+        val parts = loc.split(",")
+        if (parts.size >= 3) {
+            when (normProp) {
+                "location.x", "x" -> return parts[0].trim()
+                "location.y", "y" -> return parts[1].trim()
+                "location.z", "z" -> return parts[2].trim()
+                "location" -> return loc.trim()
+            }
+        }
+    }
+
+    // 2. Rotation (Euler in radians or degrees)
+    val rot = metadata["rotation"] ?: metadata["rotation_euler"]
+    if (rot != null) {
+        val parts = rot.split(",")
+        if (parts.size >= 3) {
+            when (normProp) {
+                "rotation.x", "rotation_euler.x", "rx" -> return parts[0].trim()
+                "rotation.y", "rotation_euler.y", "ry" -> return parts[1].trim()
+                "rotation.z", "rotation_euler.z", "rz" -> return parts[2].trim()
+                "rotation", "rotation_euler" -> return rot.trim()
+            }
+        }
+    }
+
+    // 3. Scale
+    val scale = metadata["scale"]
+    if (scale != null) {
+        val parts = scale.split(",")
+        if (parts.size >= 3) {
+            when (normProp) {
+                "scale.x", "sx" -> return parts[0].trim()
+                "scale.y", "sy" -> return parts[1].trim()
+                "scale.z", "sz" -> return parts[2].trim()
+                "scale" -> return scale.trim()
+            }
+        }
+    }
+
+    // 4. Visibility
+    if (normProp == "visible" || normProp == "is_visible") {
+        return metadata["visible"] ?: "true"
+    }
+
+    return null
+}
+
+fun evaluatePropertyCondition(observedValue: String, expectedSpec: String): Boolean {
+    val trimmedSpec = expectedSpec.trim()
+    val trimmedObs = observedValue.trim()
+
+    // 1. Orientation semantic conditions ("upside_down", "upside down", "inverted")
+    if (trimmedSpec.equals("upside_down", ignoreCase = true) ||
+        trimmedSpec.equals("upside down", ignoreCase = true) ||
+        trimmedSpec.equals("inverted", ignoreCase = true)
+    ) {
+        // Parse Euler rotation angles (rx, ry, rz)
+        val parts = trimmedObs.split(",").mapNotNull { it.trim().toDoubleOrNull() }
+        if (parts.size >= 3) {
+            val rx = parts[0]
+            val ry = parts[1]
+            // If values look like degrees (|v| > 6.3), convert to radians
+            val radX = if (kotlin.math.abs(rx) > 6.3) Math.toRadians(rx) else rx
+            val radY = if (kotlin.math.abs(ry) > 6.3) Math.toRadians(ry) else ry
+            // Global Z component of local +Z axis in Euler XYZ: cos(radX) * cos(radY)
+            val zComponent = kotlin.math.cos(radX) * kotlin.math.cos(radY)
+            // Upside down requires local Z to point downward (threshold -0.5 allows +/- 60 deg cone around bottom)
+            return zComponent <= -0.5
+        } else {
+            // Single angle check
+            val singleAngle = trimmedObs.toDoubleOrNull() ?: return false
+            val rad = if (kotlin.math.abs(singleAngle) > 6.3) Math.toRadians(singleAngle) else singleAngle
+            val zComp = kotlin.math.cos(rad)
+            return zComp <= -0.5
+        }
+    }
+
+    // 2. Relational expressions: >, >=, <, <=, !=, ==
+    val relRegex = Regex("^(>=|<=|>|<|!=|==)\\s*(-?\\d+(\\.\\d+)?)$")
+    val relMatch = relRegex.find(trimmedSpec)
+    if (relMatch != null) {
+        val op = relMatch.groupValues[1]
+        val targetNum = relMatch.groupValues[2].toDoubleOrNull() ?: return false
+        val obsNum = trimmedObs.toDoubleOrNull() ?: return false
+        val tolerance = 0.0001
+        return when (op) {
+            ">" -> obsNum > targetNum + tolerance
+            ">=" -> obsNum >= targetNum - tolerance
+            "<" -> obsNum < targetNum - tolerance
+            "<=" -> obsNum <= targetNum + tolerance
+            "!=" -> kotlin.math.abs(obsNum - targetNum) > tolerance
+            "==" -> kotlin.math.abs(obsNum - targetNum) <= tolerance
+            else -> false
+        }
+    }
+
+    // 3. Comma-separated coordinates or Euler angle comparison (e.g. "0,0,2" or "3.14,0,0")
+    if (trimmedSpec.contains(",") && trimmedObs.contains(",")) {
+        val specParts = trimmedSpec.split(",").mapNotNull { it.trim().toDoubleOrNull() }
+        val obsParts = trimmedObs.split(",").mapNotNull { it.trim().toDoubleOrNull() }
+        if (specParts.size == obsParts.size && specParts.isNotEmpty()) {
+            val tolerance = 0.08
+            return specParts.indices.all { i ->
+                val diff = kotlin.math.abs(specParts[i] - obsParts[i])
+                // Also check 2*pi wrapping for angles if near pi or 2*pi
+                val wrappedDiff = kotlin.math.abs((diff % (2 * Math.PI)))
+                diff <= tolerance || wrappedDiff <= tolerance || kotlin.math.abs(wrappedDiff - 2 * Math.PI) <= tolerance
+            }
+        }
+    }
+
+    // 4. String equality fallback
+    return trimmedObs.equals(trimmedSpec, ignoreCase = true)
+}
+
 class StateVerifier {
     fun validate(expected: ExpectedState): List<String> = expected.validate()
 
@@ -270,12 +404,16 @@ class StateVerifier {
         }
         if (!expected.targetName.isNullOrBlank()) {
             val hasObject = observed.objects.any { objectMatchesName(it, expected.targetName) }
-            if (!hasObject) return false
-            if (!expected.targetType.isNullOrBlank()) {
-                val matchesType = observed.objects.any {
-                    objectMatchesName(it, expected.targetName) && it.type.equals(expected.targetType, ignoreCase = true)
+            if (expected.operation == VerificationOperation.DELETE) {
+                if (hasObject) return false
+            } else {
+                if (!hasObject) return false
+                if (!expected.targetType.isNullOrBlank()) {
+                    val matchesType = observed.objects.any {
+                        objectMatchesName(it, expected.targetName) && it.type.equals(expected.targetType, ignoreCase = true)
+                    }
+                    if (!matchesType) return false
                 }
-                if (!matchesType) return false
             }
         }
         val conditions = (inferRequiredConditions(expected) + expected.requiredConditions).distinct()
@@ -315,7 +453,9 @@ class StateVerifier {
                 requiredConditions = required
             )
         }
-        if (baseline.runId != observed.runId || observed.capturedAt.isBefore(baseline.capturedAt)) {
+        if (baseline.runId != observed.runId || observed.capturedAt.isBefore(baseline.capturedAt) ||
+            observed.metadata["freshness"]?.equals("STALE", ignoreCase = true) == true
+        ) {
             return VerificationResult(
                 status = VerificationStatus.UNCERTAIN,
                 runId = baseline.runId,
@@ -382,8 +522,54 @@ class StateVerifier {
 
         val explanation = when (status) {
             VerificationStatus.SUCCESS -> "Required state conditions were observed in the post-action state."
-            VerificationStatus.FAILURE -> "Required state conditions were contradicted by complete observations: ${unsatisfied.filter { it.required }.joinToString { it.field.name }}"
-            VerificationStatus.UNCERTAIN -> "Insufficient evidence or conflicting state changes prevented a reliable decision."
+            VerificationStatus.FAILURE -> {
+                val propCond = unsatisfied.find { it.field == ExpectedStateField.OBJECT_PROPERTY }
+                if (propCond != null) {
+                    val prop = propCond.propertyName ?: expected.targetProperty ?: "property"
+                    val expVal = propCond.expectedValue ?: expected.expectedPropertyValue ?: ""
+                    val targetObj = observed.objects.find { objectMatchesName(it, propCond.objectName ?: expected.targetName) }
+                    val actVal = targetObj?.let { extractObjectProperty(it.metadata, prop) } ?: "unknown"
+                    if (prop.equals("location.z", ignoreCase = true) || prop.equals("z", ignoreCase = true)) {
+                        "Not verified: the cube's Z location has not reached the required target (observed: $actVal m, required: $expVal m)."
+                    } else {
+                        "Not verified: object '${expected.targetName ?: "target"}' $prop ($actVal) does not match expected target ($expVal)."
+                    }
+                } else if (expected.operation == VerificationOperation.MODIFY && operationVerdict == false) {
+                    val prop = expected.targetProperty ?: "location.z"
+                    val expVal = expected.expectedPropertyValue ?: ""
+                    val targetObj = observed.objects.find { objectMatchesName(it, expected.targetName) }
+                    val actVal = targetObj?.let { extractObjectProperty(it.metadata, prop) } ?: "unknown"
+                    if (expVal.contains("baseline", ignoreCase = true)) {
+                        val baseObj = baseline.objects.find { objectMatchesName(it, expected.targetName) }
+                        val baseVal = baseObj?.let { extractObjectProperty(it.metadata, prop) } ?: "baseline"
+                        "Not verified: the cube's $prop has not moved relative to baseline (observed: $actVal, baseline: $baseVal)."
+                    } else if (prop.equals("location.z", ignoreCase = true) || prop.equals("z", ignoreCase = true)) {
+                        "Not verified: the cube's Z location has not reached the required target (observed: $actVal m, required: $expVal m)."
+                    } else {
+                        "Not verified: required modification for '${expected.targetName ?: "target"}' was not observed."
+                    }
+                } else if (expected.operation == VerificationOperation.DELETE) {
+                    val targetName = expected.targetName ?: "object"
+                    val targetInBase = baseline.objects.any { objectMatchesName(it, targetName) }
+                    val targetInObs = observed.objects.any { objectMatchesName(it, targetName) }
+                    if (!targetInBase) {
+                        "Not verified: target object '$targetName' was not present in the scene before the action."
+                    } else if (targetInObs) {
+                        "Not verified: target object '$targetName' was not deleted and still exists in the scene."
+                    } else {
+                        "Not verified: target object '$targetName' was not deleted or still exists in the scene."
+                    }
+                } else {
+                    "Required state conditions were contradicted by complete observations: ${unsatisfied.filter { it.required }.joinToString { it.field.name }}"
+                }
+            }
+            VerificationStatus.UNCERTAIN -> {
+                if (indeterminate.any { it.field == ExpectedStateField.OBJECT_PROPERTY }) {
+                    "Insufficient evidence: required property '${expected.targetProperty ?: "location"}' was not found in object observation."
+                } else {
+                    "Insufficient evidence or conflicting state changes prevented a reliable decision."
+                }
+            }
         }
 
         return VerificationResult(
@@ -444,10 +630,16 @@ class StateVerifier {
         observed: ObservedState,
         condition: ExpectedCondition
     ): Boolean? {
-        val name = condition.objectName ?: expected.targetName ?: when (condition.field) {
+        val rawName = condition.objectName ?: expected.targetName ?: when (condition.field) {
             ExpectedStateField.OBJECT_EXISTS, ExpectedStateField.OBJECT_NAME -> condition.expectedValue
             else -> null
         }
+        val name = if (rawName != null && (rawName.equals("Active", ignoreCase = true) || rawName.equals("Selected", ignoreCase = true))) {
+            observed.selectedObjects.firstOrNull()
+                ?: observed.objects.find { it.selected == true }?.name
+                ?: observed.objects.find { it.type == "MESH" }?.name
+                ?: rawName
+        } else rawName
         val objects = observed.objects.filter { objectInScope(it, expected, observed.sceneName) }
         val namedObjects = objects.filter { objectMatchesName(it, name) }
         return when (condition.field) {
@@ -493,11 +685,15 @@ class StateVerifier {
                 }
             }
             ExpectedStateField.OBJECT_PROPERTY -> {
-                val target = namedObjects.singleOrNull() ?: return null
+                val target = namedObjects.singleOrNull() ?: return if (namedObjects.isEmpty() && isCompleteForExpectedScope(observed, expected)) false else null
                 val property = condition.propertyName ?: expected.targetProperty ?: return null
                 val expectedValue = condition.expectedValue ?: expected.expectedPropertyValue ?: return null
-                val observedValue = target.metadata[property] ?: return null
-                observedValue == expectedValue
+                val observedValue = extractObjectProperty(target.metadata, property) ?: return null
+                if (expectedValue.contains("baseline", ignoreCase = true)) {
+                    true
+                } else {
+                    evaluatePropertyCondition(observedValue, expectedValue)
+                }
             }
             ExpectedStateField.SCENE_NAME -> {
                 val expectedValue = condition.expectedValue ?: expected.targetScene
@@ -541,9 +737,23 @@ class StateVerifier {
             }
             VerificationOperation.DELETE -> {
                 if (!isCompleteForExpectedScope(baseline, expected)) return null
-                val target = before.singleOrNull() ?: return if (before.isEmpty()) false else null
+                val targetName = expected.targetName ?: return null
+                val resolvedName = if (targetName.equals("Active", ignoreCase = true) || targetName.equals("Selected", ignoreCase = true)) {
+                    baseline.selectedObjects.firstOrNull()
+                        ?: baseline.objects.find { it.selected == true }?.name
+                        ?: baseline.objects.find { it.type == "MESH" }?.name
+                        ?: targetName
+                } else targetName
+
+                val afterResolved = afterObjects.filter { objectMatchesName(it, resolvedName) }
+                val beforeResolved = beforeObjects.filter { objectMatchesName(it, resolvedName) }
+                if (beforeResolved.size > 1 || afterResolved.size > 1) {
+                    return null
+                }
+                val target = beforeResolved.singleOrNull() ?: return if (expected.allowSatisfiedInitialState && beforeResolved.isEmpty() && afterResolved.isEmpty()) true else false
                 val id = target.id?.takeIf(String::isNotBlank)
-                val stillPresent = if (id == null) after.isNotEmpty() else afterObjects.count { it.id == id } > 0
+                val stillPresent = (id != null && afterObjects.any { it.id == id }) ||
+                    afterResolved.isNotEmpty()
                 when {
                     stillPresent -> false
                     isCompleteForExpectedScope(observed, expected) -> true
@@ -592,11 +802,81 @@ class StateVerifier {
                 if (afterTarget.id != id) return null
                 val property = expected.targetProperty ?: return null
                 val expectedValue = expected.expectedPropertyValue ?: return null
-                val beforeValue = beforeTarget.metadata[property] ?: return null
-                val afterValue = afterTarget.metadata[property] ?: return null
-                when {
-                    afterValue != expectedValue -> false
-                    beforeValue == expectedValue -> false
+                val beforeValue = extractObjectProperty(beforeTarget.metadata, property)
+                val afterValue = extractObjectProperty(afterTarget.metadata, property)
+                if (beforeValue == null || afterValue == null) return null
+
+                // Relative baseline condition (e.g. "> baseline", "!= baseline", "< baseline", etc.)
+                if (expectedValue.contains("baseline", ignoreCase = true)) {
+                    val bZ = beforeValue.toDoubleOrNull()
+                    val aZ = afterValue.toDoubleOrNull()
+                    if (bZ != null && aZ != null) {
+                        val tolerance = 0.001
+                        return when {
+                            expectedValue.startsWith("> baseline") -> aZ > bZ + tolerance
+                            expectedValue.startsWith(">= baseline") -> aZ >= bZ - tolerance
+                            expectedValue.startsWith("< baseline") -> aZ < bZ - tolerance
+                            expectedValue.startsWith("<= baseline") -> aZ <= bZ + tolerance
+                            expectedValue.equals("!= baseline", ignoreCase = true) -> kotlin.math.abs(aZ - bZ) > tolerance
+                            expectedValue.equals("== baseline", ignoreCase = true) -> kotlin.math.abs(aZ - bZ) <= tolerance
+                            else -> kotlin.math.abs(aZ - bZ) > tolerance
+                        }
+                    }
+                    if (property.equals("location", ignoreCase = true) && expectedValue.equals("!= baseline", ignoreCase = true)) {
+                        val bParts = beforeValue.split(",").mapNotNull { it.trim().toDoubleOrNull() }
+                        val aParts = afterValue.split(",").mapNotNull { it.trim().toDoubleOrNull() }
+                        if (bParts.size == 3 && aParts.size == 3) {
+                            return bParts.indices.any { i -> kotlin.math.abs(aParts[i] - bParts[i]) > 0.001 }
+                        }
+                        return beforeValue != afterValue
+                    }
+                    if ((property.equals("rotation", ignoreCase = true) || property.equals("rotation_euler", ignoreCase = true)) &&
+                        expectedValue.equals("!= baseline", ignoreCase = true)
+                    ) {
+                        val bParts = beforeValue.split(",").mapNotNull { it.trim().toDoubleOrNull() }
+                        val aParts = afterValue.split(",").mapNotNull { it.trim().toDoubleOrNull() }
+                        if (bParts.size == 3 && aParts.size == 3) {
+                            val rotTolerance = 0.05 // ~2.8 degrees
+                            return bParts.indices.any { i -> kotlin.math.abs(aParts[i] - bParts[i]) > rotTolerance }
+                        }
+                        return beforeValue != afterValue
+                    }
+                    if (property.equals("scale", ignoreCase = true) && expectedValue.equals("!= baseline", ignoreCase = true)) {
+                        val bParts = beforeValue.split(",").mapNotNull { it.trim().toDoubleOrNull() }
+                        val aParts = afterValue.split(",").mapNotNull { it.trim().toDoubleOrNull() }
+                        if (bParts.size == 3 && aParts.size == 3) {
+                            val scaleTolerance = 0.02
+                            return bParts.indices.any { i -> kotlin.math.abs(aParts[i] - bParts[i]) > scaleTolerance }
+                        }
+                        return beforeValue != afterValue
+                    }
+                    return null
+                }
+
+                // Explicit orientation target conditions (e.g. "upside_down")
+                if (expectedValue.equals("upside_down", ignoreCase = true) ||
+                    expectedValue.equals("upside down", ignoreCase = true) ||
+                    expectedValue.equals("inverted", ignoreCase = true)
+                ) {
+                    val satisfiesFinal = evaluatePropertyCondition(afterValue, expectedValue)
+                    if (!satisfiesFinal) return false
+                    val satisfiesBaseline = evaluatePropertyCondition(beforeValue, expectedValue)
+                    if (satisfiesBaseline && beforeValue == afterValue) {
+                        return expected.allowSatisfiedInitialState
+                    }
+                    return true
+                }
+
+                // Explicit relational target conditions (e.g. "> 0", "< 5", ">= 1"):
+                val isRelational = expectedValue.startsWith(">") || expectedValue.startsWith("<")
+                if (isRelational) {
+                    return evaluatePropertyCondition(afterValue, expectedValue)
+                }
+
+                // Explicit exact target value (e.g. "1,2,3"):
+                return when {
+                    !evaluatePropertyCondition(afterValue, expectedValue) -> false
+                    evaluatePropertyCondition(beforeValue, expectedValue) && beforeValue == afterValue -> expected.allowSatisfiedInitialState
                     else -> true
                 }
             }

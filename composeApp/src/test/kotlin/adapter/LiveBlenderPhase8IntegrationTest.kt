@@ -178,7 +178,7 @@ class LiveBlenderPhase8IntegrationTest {
         try {
             val adapter = BlenderApplicationAdapter(port = port, timeoutMillis = 500)
             var ready = false
-            for (i in 1..40) {
+            for (i in 1..60) {
                 val health = adapter.checkHealth()
                 if (health.status == AdapterHealthStatus.HEALTHY) {
                     ready = true

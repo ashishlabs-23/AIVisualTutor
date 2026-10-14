@@ -10,11 +10,26 @@ package models
  * [selection.RegionSelector]. Region capture uses the manually selected
  * coordinates to capture the corresponding screen pixels.
  */
+enum class DirectionalAxis {
+    UP_POSITIVE_Z,
+    DOWN_NEGATIVE_Z,
+    LEFT,
+    RIGHT
+}
+
+data class DirectionalIndicator(
+    val axis: DirectionalAxis = DirectionalAxis.UP_POSITIVE_Z,
+    val label: String = "+Z (Up)",
+    val hint: String = "Press G, then Z and move mouse upward"
+)
+
 data class HighlightRegion(
     val x: Float,
     val y: Float,
     val width: Float,
-    val height: Float
+    val height: Float,
+    val isScreenCoordinates: Boolean = false,
+    val directionalIndicator: DirectionalIndicator? = null
 ) {
     /** Convenience center point, useful for pointing an arrow at the region. */
     val centerX: Float get() = x + width / 2f

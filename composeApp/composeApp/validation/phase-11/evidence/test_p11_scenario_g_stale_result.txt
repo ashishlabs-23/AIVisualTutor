@@ -1,0 +1,4 @@
+SCENARIO G — STALE ASYNCHRONOUS RESULT VALIDATION
+Timestamp: 2026-10-14T10:09:34.401718700Z
+Active Step: 1 (Step 1 Intact)
+Stale Result Handling: Old async result rejected by stale guard without altering new step.

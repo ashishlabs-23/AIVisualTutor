@@ -3,6 +3,7 @@ package adapter
 import context.BlenderObservationStatus
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -162,4 +163,118 @@ class BlenderApplicationAdapterTest {
         val snapshotResult = closedAdapter.takeSnapshot()
         assertTrue(snapshotResult is AdapterSnapshotResult.Unavailable)
     }
+
+    @Test
+    fun testProjectedObjectParsing() {
+        val adapter = BlenderApplicationAdapter()
+        val json = """
+        {
+          "status": "PROJECTED",
+          "target": "Cube",
+          "identity": "session:xyz:pointer:abc",
+          "scene": "Scene",
+          "visible": true,
+          "selected": false,
+          "bounds": {
+            "x": 712.67,
+            "y": 391.81,
+            "width": 161.3,
+            "height": 177.48
+          },
+          "center": {
+            "x": 793.32,
+            "y": 480.55
+          }
+        }
+        """.trimIndent()
+
+        val result = adapter.parseProjectedObjectJson(json)
+        assertTrue(result is ProjectedObjectResult.Success)
+        assertEquals("Cube", result.targetName)
+        assertEquals("session:xyz:pointer:abc", result.identity)
+        assertEquals(false, result.isSelected)
+        assertEquals(712.67f, result.bounds.x)
+        assertEquals(391.81f, result.bounds.y)
+        assertEquals(161.3f, result.bounds.width)
+        assertEquals(177.48f, result.bounds.height)
+        assertFalse(result.bounds.isScreenCoordinates) // Window-relative within Blender
+    }
+
+    @Test
+    fun testParseAmbiguousViewportJson() {
+        val adapter = BlenderApplicationAdapter()
+        val json = """
+        {
+          "status": "AMBIGUOUS_VIEWPORT",
+          "target": "Cube",
+          "viewportCount": 2,
+          "error": "Multiple 3D viewports detected (2). Target viewport cannot be determined unambiguously.",
+          "viewports": [
+            {"index": 0, "x": 0, "y": 0, "width": 800, "height": 600, "isQuadView": false},
+            {"index": 1, "x": 800, "y": 0, "width": 800, "height": 600, "isQuadView": false}
+          ]
+        }
+        """.trimIndent()
+
+        val result = adapter.parseProjectedObjectJson(json)
+        assertTrue(result is ProjectedObjectResult.AmbiguousViewport)
+        assertEquals("Cube", result.target)
+        assertEquals(2, result.viewportCount)
+        assertTrue(result.diagnostic.contains("Multiple 3D viewports detected"))
+    }
+
+    @Test
+    fun testParseNotProjectedJson() {
+        val adapter = BlenderApplicationAdapter()
+        val json = """
+        {
+          "status": "OUTSIDE_VIEWPORT",
+          "reason": "BEHIND_CAMERA",
+          "target": "Cube",
+          "error": "Object 'Cube' is completely behind the viewport camera."
+        }
+        """.trimIndent()
+
+        val result = adapter.parseProjectedObjectJson(json)
+        assertTrue(result is ProjectedObjectResult.NotProjected)
+        assertEquals("Cube", result.target)
+        assertEquals("BEHIND_CAMERA", result.reason)
+        assertTrue(result.diagnostic.contains("behind the viewport camera"))
+    }
+
+    @Test
+    fun testParseOcclusionAndClippingJson() {
+        val adapter = BlenderApplicationAdapter()
+        val json = """
+        {
+          "status": "PROJECTED",
+          "target": "Cube",
+          "identity": "session:test:1",
+          "scene": "Scene",
+          "visible": true,
+          "selected": true,
+          "visibility": "POTENTIALLY_OCCLUDED",
+          "occludedBy": "Sphere",
+          "isPartiallyClipped": true,
+          "bounds": {
+            "x": 100.0,
+            "y": 120.0,
+            "width": 80.0,
+            "height": 90.0
+          },
+          "center": {
+            "x": 140.0,
+            "y": 165.0
+          }
+        }
+        """.trimIndent()
+
+        val result = adapter.parseProjectedObjectJson(json)
+        assertTrue(result is ProjectedObjectResult.Success)
+        assertEquals("Cube", result.targetName)
+        assertEquals("POTENTIALLY_OCCLUDED", result.visibility)
+        assertEquals("Sphere", result.occludedBy)
+        assertTrue(result.isPartiallyClipped)
+    }
 }
+

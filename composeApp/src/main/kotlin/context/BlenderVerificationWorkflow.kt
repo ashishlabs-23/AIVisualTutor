@@ -106,6 +106,19 @@ class BlenderVerificationWorkflow(
                 "mode" to (observation.mode ?: "unknown")
             )
         )
+        if (observation.status != BlenderObservationStatus.AVAILABLE || observed == null) {
+            val diag = observation.diagnostic ?: "Blender state telemetry unavailable."
+            val failResult = VerificationResult(
+                status = VerificationStatus.UNCERTAIN,
+                runId = run.id,
+                operation = run.expected.operation,
+                explanation = "Blender state request failed: $diag",
+                evidence = listOf(directEvidence.toLegacyEvidenceObservation()),
+                requiredConditions = emptyList()
+            )
+            resultStore.persist(failResult)
+            return failResult
+        }
 
         val result = reconciler.reconcileAndVerify(
             expected = run.expected,
@@ -148,6 +161,61 @@ class BlenderVerificationWorkflow(
         val result = reconciler.reconcileAndVerify(
             expected = run.expected,
             baseline = cleanBaseline,
+            observed = observed,
+            rawEvidence = listOf(directEvidence)
+        )
+        if (result.status == VerificationStatus.SUCCESS) {
+            resultStore.persist(result)
+            return result
+        }
+        return null
+    }
+
+    /**
+     * When the expected object was already deleted before the baseline for this run was captured,
+     * re-evaluates deletion using a prior authoritative observation where the target object existed.
+     */
+    suspend fun verifyWithPreDeletionBaseline(run: VerificationRun, priorObservedState: ObservedState?): VerificationResult? {
+        if (run.expected.operation != VerificationOperation.DELETE) return null
+        val rawTargetName = run.expected.targetName ?: return null
+        val observed = lastObservedState ?: return null
+        val prior = priorObservedState ?: return null
+        val targetName = if (rawTargetName.equals("Selected", ignoreCase = true) || rawTargetName.equals("Active", ignoreCase = true)) {
+            prior.selectedObjects.firstOrNull() ?: prior.objects.find { it.selected == true }?.name ?: rawTargetName
+        } else rawTargetName
+        val priorMatches = prior.objects.filter { verifier.objectMatchesName(it, targetName) }
+        if (priorMatches.size != 1) return null
+
+        val syntheticBaseline = BaselineState(
+            runId = run.id,
+            capturedAt = prior.capturedAt,
+            applicationName = prior.applicationName,
+            sceneName = prior.sceneName,
+            mode = prior.mode,
+            objects = prior.objects,
+            selectedObjects = prior.selectedObjects,
+            metadata = prior.metadata,
+            isComplete = prior.isComplete
+        )
+        val directProv = lastObservation?.let { obs ->
+            EvidenceProvenance(
+                category = EvidenceCategory.DIRECT_APPLICATION_STATE,
+                source = EvidenceSource.BLENDER,
+                capturedAt = obs.capturedAt,
+                sessionId = obs.sessionId,
+                isDirectFact = true,
+                freshness = if (obs.status == BlenderObservationStatus.AVAILABLE) ObservationFreshness.FRESH else ObservationFreshness.UNKNOWN,
+                confidence = if (obs.status == BlenderObservationStatus.AVAILABLE) 1.0 else 0.0,
+                diagnostic = obs.diagnostic
+            )
+        } ?: return null
+        val directEvidence = ProvenanceEvidenceObservation(
+            provenance = directProv,
+            available = true
+        )
+        val result = reconciler.reconcileAndVerify(
+            expected = run.expected,
+            baseline = syntheticBaseline,
             observed = observed,
             rawEvidence = listOf(directEvidence)
         )

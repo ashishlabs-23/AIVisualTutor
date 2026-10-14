@@ -1,7 +1,7 @@
 === Test P9-07 to P9-10: Multimodal Screenshot Analysis ===
 Status: PASS
-Input Image: C:\Users\HP\AppData\Local\Temp\AIVT_BlenderCapture_42642a527db14c9199c2c5c28b8d68d8_8466503529897223422.png
-Input Dimensions: 1366 × 768 px
+Input Image: C:\Users\USER\AppData\Local\Temp\AIVT_BlenderCapture_670291d2ec38454dabf4f912e02b2f49_13528960957813334475.png
+Input Dimensions: 1920 × 1080 px
 Target Model: gemini-1.5-flash
 Submission Outcome Type: StagedForPhase9
 Mode: Verified Offline Staging (GEMINI_API_KEY unconfigured on host)

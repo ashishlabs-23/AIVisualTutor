@@ -1,0 +1,7 @@
+SCENARIO D — TELEMETRY FAILURE VALIDATION
+Timestamp: 2026-10-14T10:09:34.477244Z
+Telemetry Status: UNAVAILABLE
+Coordinator State: NEEDS_MORE_EVIDENCE
+Message: Blender state telemetry unavailable: Could not capture Blender baseline: Blender TCP telemetry connection refused on 127.0.0.1:9876
+Failure Budget Consumed: 0 (Correct - not penalized for environment/provider failure)
+Step Advanced: false

@@ -1,0 +1,7 @@
+SCENARIO E — REPEATED FAILURE & BOUNDED RETRY VALIDATION
+Timestamp: 2026-10-14T10:09:34.569846900Z
+Policy: maxVerifiedFailuresPerStep = 3
+Attempt 1: RECOVERY_RECOMMENDED (isRepeated=false)
+Attempt 2: RECOVERY_RECOMMENDED (isRepeated=true, adapted scaffolding provided)
+Attempt 3: RETRY_LIMIT_REACHED (RetryLimitReached, infinite loop prevented)
+Action Options Available: Reset attempts or manual check.

@@ -175,10 +175,18 @@ class StateMismatchDiagnosticEngine(
         }
 
         // 3. Selection Check
-        val targetName = expected.targetName?.trim().orEmpty()
+        val rawTargetName = expected.targetName?.trim().orEmpty()
+        val targetName = if (rawTargetName.equals("Active", ignoreCase = true) || rawTargetName.equals("Selected", ignoreCase = true)) {
+            observed.selectedObjects.firstOrNull()
+                ?: observed.objects.find { it.selected == true }?.name
+                ?: baseline?.selectedObjects?.firstOrNull()
+                ?: baseline?.objects?.find { it.type == "MESH" }?.name
+                ?: rawTargetName
+        } else rawTargetName
+
         if (targetName.isNotBlank() && expected.expectedSelection == true) {
             val isSelected = observed.selectedObjects.any { it.equals(targetName, ignoreCase = true) } ||
-                observed.objects.any { it.name.equals(targetName, ignoreCase = true) && it.selected == true }
+                observed.objects.any { (it.name.equals(targetName, ignoreCase = true) || (it.name != null && Regex("^" + Regex.escape(targetName) + "(\\.\\d+)?$", RegexOption.IGNORE_CASE).matches(it.name))) && it.selected == true }
             if (!isSelected) {
                 val currentSelection = observed.selectedObjects.joinToString(", ").ifBlank { "Nothing" }
                 mismatches.add(
@@ -199,7 +207,7 @@ class StateMismatchDiagnosticEngine(
 
         // 4. Object Existence Checks
         if (targetName.isNotBlank()) {
-            val objectExists = observed.objects.any { it.name.equals(targetName, ignoreCase = true) }
+            val objectExists = observed.objects.any { it.name.equals(targetName, ignoreCase = true) || (it.name != null && Regex("^" + Regex.escape(targetName) + "(\\.\\d+)?$", RegexOption.IGNORE_CASE).matches(it.name)) }
             if (expected.operation == VerificationOperation.CREATE && !objectExists) {
                 mismatches.add(
                     StateMismatch(
@@ -233,13 +241,96 @@ class StateMismatchDiagnosticEngine(
 
         // 5. Transform Modification Check
         if (expected.operation == VerificationOperation.MODIFY && baseline != null && targetName.isNotBlank()) {
-            val baseObj = baseline.objects.find { it.name.equals(targetName, ignoreCase = true) }
-            val obsObj = observed.objects.find { it.name.equals(targetName, ignoreCase = true) }
+            val nameRegex = Regex("^" + Regex.escape(targetName) + "(\\.\\d+)?$", RegexOption.IGNORE_CASE)
+            val baseObj = baseline.objects.find { it.name?.equals(targetName, ignoreCase = true) == true || (it.name != null && nameRegex.matches(it.name)) }
+            val obsObj = observed.objects.find { it.name?.equals(targetName, ignoreCase = true) == true || (it.name != null && nameRegex.matches(it.name)) }
 
             if (baseObj != null && obsObj != null) {
                 val baseLoc = baseObj.metadata["location"]
                 val obsLoc = obsObj.metadata["location"]
-                if (baseLoc != null && obsLoc != null && baseLoc == obsLoc) {
+                val targetProp = expected.targetProperty?.lowercase()
+                val expVal = expected.expectedPropertyValue
+
+                if (targetProp == "location.z" || targetProp == "z") {
+                    val bZ = extractObjectProperty(baseObj.metadata, "location.z")?.toDoubleOrNull()
+                    val aZ = extractObjectProperty(obsObj.metadata, "location.z")?.toDoubleOrNull()
+                    if (bZ != null && aZ != null) {
+                        val isRelative = expVal != null && expVal.contains("baseline", ignoreCase = true)
+                        val failedUpward = if (isRelative) aZ <= bZ + 0.001 else false
+                        val failedSpec = if (!isRelative && expVal != null) !evaluatePropertyCondition(aZ.toString(), expVal) else false
+                        if (failedUpward || failedSpec) {
+                            val (requiredStr, explanation) = if (failedSpec) {
+                                expVal!! to "Not verified: the cube's Z location has not reached the required target (observed: $aZ m, required: $expVal m)."
+                            } else {
+                                "> $bZ" to "Not verified: the cube's Z location has not moved upward relative to the starting position (observed: $aZ m, baseline: $bZ m)."
+                            }
+                            mismatches.add(
+                                StateMismatch(
+                                    category = MismatchCategory.TRANSFORM_UNMODIFIED,
+                                    expected = "Z location $requiredStr (moved upward)",
+                                    observed = "Z location: $aZ m",
+                                    explanation = explanation,
+                                    suggestedAction = RecoveryAction(
+                                        actionType = "APPLY_TRANSFORM",
+                                        description = "Press 'G', then 'Z', and move mouse upward to translate '$targetName' along the Z-axis.",
+                                        suggestedShortcut = "G, then Z",
+                                        targetName = targetName
+                                    )
+                                )
+                            )
+                        }
+                    }
+                } else if (targetProp == "rotation" || targetProp == "rotation_euler" || targetProp?.startsWith("rotation.") == true) {
+                    val bRot = extractObjectProperty(baseObj.metadata, targetProp)
+                    val aRot = extractObjectProperty(obsObj.metadata, targetProp)
+                    val isRelative = expVal != null && expVal.contains("baseline", ignoreCase = true)
+                    val failedSpec = when {
+                        isRelative -> bRot != null && aRot != null && bRot == aRot
+                        expVal != null -> !evaluatePropertyCondition(aRot ?: "", expVal)
+                        else -> bRot == aRot
+                    }
+                    if (failedSpec) {
+                        mismatches.add(
+                            StateMismatch(
+                                category = MismatchCategory.TRANSFORM_UNMODIFIED,
+                                expected = "Rotation ${expVal ?: "!= baseline"}",
+                                observed = "Rotation: ${aRot ?: "unrotated"}",
+                                explanation = "Not verified: object '$targetName' rotation has not met the required orientation (${expVal ?: "modified"}).",
+                                suggestedAction = RecoveryAction(
+                                    actionType = "ROTATE_OBJECT",
+                                    description = "Press 'R' to rotate '$targetName' to the required orientation.",
+                                    suggestedShortcut = "R",
+                                    targetName = targetName
+                                )
+                            )
+                        )
+                    }
+                } else if (targetProp == "scale" || targetProp?.startsWith("scale.") == true) {
+                    val bScale = extractObjectProperty(baseObj.metadata, targetProp)
+                    val aScale = extractObjectProperty(obsObj.metadata, targetProp)
+                    val isRelative = expVal != null && expVal.contains("baseline", ignoreCase = true)
+                    val failedSpec = when {
+                        isRelative -> bScale != null && aScale != null && bScale == aScale
+                        expVal != null -> !evaluatePropertyCondition(aScale ?: "", expVal)
+                        else -> bScale == aScale
+                    }
+                    if (failedSpec) {
+                        mismatches.add(
+                            StateMismatch(
+                                category = MismatchCategory.TRANSFORM_UNMODIFIED,
+                                expected = "Scale ${expVal ?: "!= baseline"}",
+                                observed = "Scale: ${aScale ?: "unscaled"}",
+                                explanation = "Not verified: object '$targetName' scale has not changed (${expVal ?: "modified"}).",
+                                suggestedAction = RecoveryAction(
+                                    actionType = "SCALE_OBJECT",
+                                    description = "Press 'S' to scale '$targetName'.",
+                                    suggestedShortcut = "S",
+                                    targetName = targetName
+                                )
+                            )
+                        )
+                    }
+                } else if (baseLoc != null && obsLoc != null && baseLoc == obsLoc) {
                     mismatches.add(
                         StateMismatch(
                             category = MismatchCategory.TRANSFORM_UNMODIFIED,

@@ -1,0 +1,5 @@
+=== E2E-06: RECOVERY AFTER REPEATED ERRORS ===
+Timestamp: 2026-10-14T10:08:02.700713200Z
+Consecutive Failures: 3
+Adaptive Guidance Stage: STAGE_1_EXACT_GUIDANCE
+Adaptation Reason: Reverted to Stage 1 (Direct Guidance) after 3 consecutive verified failures on 'Bevel Edges'. Target availability and task interpretation reassessment recommended. Repeated verified difficulty (null) detected; adapting instruction strategy to SMALLER_STEP.

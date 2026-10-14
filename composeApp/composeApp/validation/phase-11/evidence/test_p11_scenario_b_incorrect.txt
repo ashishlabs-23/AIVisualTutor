@@ -1,0 +1,7 @@
+SCENARIO B — INCORRECT OUTCOME VALIDATION
+Timestamp: 2026-10-14T10:09:34.466243400Z
+Recovery State: RECOVERY_RECOMMENDED
+Mismatch Detected: OBJECT_MISSING
+Suggested Action: Add 'Sphere' (e.g. Shift+A -> Mesh -> Cube).
+Step Advance Prevented: currentStepIndex=0 (Intact)
+Learner Agency: No automated actions performed.

@@ -1,0 +1,5 @@
+=== E2E-10: PROVIDER UNAVAILABLE FALLBACK ===
+Timestamp: 2026-10-14T10:08:02.670527500Z
+Provider Error Diagnostic: Screenshot capture failed: AI Vision API quota exceeded (HTTP 429)
+Learner Competence Penalized: FALSE
+Goal Completed Steps: 0

@@ -1,0 +1,6 @@
+SCENARIO I — CONFLICTING EVIDENCE VALIDATION
+Timestamp: 2026-10-14T10:09:34.547553500Z
+Direct Application State Mode: EDIT (Confidence 1.0)
+Visual Model Prediction Mode: OBJECT (Confidence 0.85)
+Reconciled Status: FAILURE
+Evidence Integrity: Visual model claim did not override direct fact.

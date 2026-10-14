@@ -840,26 +840,29 @@ fun WindowScope.TutorPanel(
                                 .background(Color(0x3D191F2E), RoundedCornerShape(14.dp))
                                 .border(1.dp, Color(0x33475569), RoundedCornerShape(14.dp))
                                 .clickable {
-                                    if (activeStep.expectedState != null) {
-                                        coroutineScope.launch {
-                                            controller.recoveryCoordinator.verifyActiveStep()
+                                    coroutineScope.launch {
+                                        if (recoveryState is tutor.ClosedLoopRecoveryState.RetryLimitReached) {
+                                            controller.recoveryCoordinator.resetStepAttempts(state.currentStepIndex)
                                         }
+                                        controller.recoveryCoordinator.verifyActiveStep()
                                     }
                                 }
                                 .padding(horizontal = 12.dp, vertical = 9.dp)
                         ) {
                             Column {
+                                val isCurrentCompleted = controller.isStepIndexCompleted(state.currentStepIndex)
                                 val bubbleTitle = when (recoveryState) {
                                     is tutor.ClosedLoopRecoveryState.Verifying -> "Checking Blender state..."
                                     is tutor.ClosedLoopRecoveryState.VerifiedSuccess -> "Action Verified! ✔"
-                                    is tutor.ClosedLoopRecoveryState.RecoveryRecommended -> "Correction Needed (Attempt ${recoveryState.attemptNumber} of ${controller.recoveryCoordinator.policy.maxVerifiedFailuresPerStep})"
+                                    is tutor.ClosedLoopRecoveryState.RecoveryRecommended -> "Not Verified (Attempt ${recoveryState.attemptNumber} of ${controller.recoveryCoordinator.policy.maxVerifiedFailuresPerStep})"
                                     is tutor.ClosedLoopRecoveryState.RetryLimitReached -> "Retry Limit Reached"
                                     is tutor.ClosedLoopRecoveryState.NeedsMoreEvidence -> "Verification Notice"
                                     is tutor.ClosedLoopRecoveryState.AwaitingRetry -> "Ready to Retry"
+                                    is tutor.ClosedLoopRecoveryState.AwaitingLearnerAction -> "Ready for Action"
                                     is tutor.ClosedLoopRecoveryState.Error -> "Verification Error"
                                     is tutor.ClosedLoopRecoveryState.Cancelled -> "Verification Cancelled"
                                     else -> when {
-                                        state.lastPedagogicalOutcome == PedagogicalOutcome.VERIFIED_SUCCESS -> "Action Verified! ✔"
+                                        isCurrentCompleted -> "Action Verified! ✔"
                                         state.lastPedagogicalOutcome == PedagogicalOutcome.VERIFIED_FAILURE -> "State Check: Mismatch"
                                         state.lastPedagogicalOutcome == PedagogicalOutcome.UNCERTAIN -> "Verification Notice"
                                         activeStep.expectedState != null -> "Waiting for your action"
@@ -875,8 +878,9 @@ fun WindowScope.TutorPanel(
                                     is tutor.ClosedLoopRecoveryState.NeedsMoreEvidence -> Color(0xFFFBBF24)
                                     is tutor.ClosedLoopRecoveryState.Verifying -> Color(0xFF60A5FA)
                                     is tutor.ClosedLoopRecoveryState.Cancelled -> Color(0xFF94A3B8)
+                                    is tutor.ClosedLoopRecoveryState.AwaitingLearnerAction -> Color(0xFFA78BFA)
                                     else -> when {
-                                        state.lastPedagogicalOutcome == PedagogicalOutcome.VERIFIED_SUCCESS -> Color(0xFF34D399)
+                                        isCurrentCompleted -> Color(0xFF34D399)
                                         state.lastPedagogicalOutcome == PedagogicalOutcome.VERIFIED_FAILURE -> Color(0xFFF87171)
                                         else -> Color(0xFFA78BFA)
                                     }
@@ -885,14 +889,26 @@ fun WindowScope.TutorPanel(
                                 val bubbleText = when (recoveryState) {
                                     is tutor.ClosedLoopRecoveryState.Verifying -> "Observing live Blender scene telemetry and checking expected state..."
                                     is tutor.ClosedLoopRecoveryState.VerifiedSuccess -> recoveryState.explanation
-                                    is tutor.ClosedLoopRecoveryState.RecoveryRecommended -> "${recoveryState.recommendation.title}: ${recoveryState.recommendation.actionSteps.firstOrNull() ?: recoveryState.recommendation.explanation}"
+                                    is tutor.ClosedLoopRecoveryState.RecoveryRecommended -> {
+                                        val diagExp = recoveryState.diagnosticReport?.primaryMismatch?.explanation
+                                        if (diagExp != null && diagExp.startsWith("Not verified", ignoreCase = true)) {
+                                            diagExp
+                                        } else {
+                                            "${recoveryState.recommendation.title}: ${recoveryState.recommendation.actionSteps.firstOrNull() ?: recoveryState.recommendation.explanation}"
+                                        }
+                                    }
                                     is tutor.ClosedLoopRecoveryState.RetryLimitReached -> recoveryState.message
                                     is tutor.ClosedLoopRecoveryState.NeedsMoreEvidence -> recoveryState.message
                                     is tutor.ClosedLoopRecoveryState.AwaitingRetry -> "Perform the action in Blender, then click Verify to check."
+                                    is tutor.ClosedLoopRecoveryState.AwaitingLearnerAction -> "Perform the action in Blender, then click Verify to check."
                                     is tutor.ClosedLoopRecoveryState.Error -> recoveryState.message + (recoveryState.cause?.message?.let { ": $it" } ?: "")
                                     is tutor.ClosedLoopRecoveryState.Cancelled -> recoveryState.reason
-                                    else -> state.adaptationReason?.takeIf { state.lastPedagogicalOutcome != null }
-                                        ?: "Next: ${activeStep.instruction} Then I will verify it."
+                                    else -> if (isCurrentCompleted) {
+                                        "This step is completed! You can proceed to the next step or click Verify to re-check."
+                                    } else {
+                                        state.adaptationReason?.takeIf { state.lastPedagogicalOutcome != null }
+                                            ?: "Next: ${activeStep.instruction} Then I will verify it."
+                                    }
                                 }
 
                                 Text(
@@ -1061,28 +1077,36 @@ fun WindowScope.TutorPanel(
                             )
                         }
 
-                        if (activeStep.expectedState != null) {
-                            val isVerifying = recoveryState is tutor.ClosedLoopRecoveryState.Verifying
-                            Box(
-                                modifier = Modifier
-                                    .weight(1.1f)
-                                    .background(Color(0x33065F46), RoundedCornerShape(8.dp))
-                                    .border(1.dp, Color(0x6610B981), RoundedCornerShape(8.dp))
-                                    .clickable(enabled = !isVerifying) {
-                                        coroutineScope.launch {
-                                            controller.recoveryCoordinator.verifyActiveStep()
-                                        }
-                                    }
-                                    .padding(vertical = 5.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = if (isVerifying) "⏳ Verifying..." else "🎯 Verify",
-                                    color = Color(0xFF34D399),
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold
+                        val isVerifying = recoveryState is tutor.ClosedLoopRecoveryState.Verifying
+                        Box(
+                            modifier = Modifier
+                                .weight(1.1f)
+                                .background(
+                                    if (isVerifying) Color(0x333B82F6) else Color(0x33065F46),
+                                    RoundedCornerShape(8.dp)
                                 )
-                            }
+                                .border(
+                                    1.dp,
+                                    if (isVerifying) Color(0x6660A5FA) else Color(0x6610B981),
+                                    RoundedCornerShape(8.dp)
+                                )
+                                .clickable(enabled = !isVerifying) {
+                                    coroutineScope.launch {
+                                        if (recoveryState is tutor.ClosedLoopRecoveryState.RetryLimitReached) {
+                                            controller.recoveryCoordinator.resetStepAttempts(state.currentStepIndex)
+                                        }
+                                        controller.recoveryCoordinator.verifyActiveStep()
+                                    }
+                                }
+                                .padding(vertical = 5.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = if (isVerifying) "⏳ Verifying..." else "🎯 Verify",
+                                color = if (isVerifying) Color(0xFF93C5FD) else Color(0xFF34D399),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold
+                            )
                         }
                     }
 

@@ -52,23 +52,17 @@ fun ChatbotPanel(
     overlayManager: OverlayManager? = null,
     onAutoVerifyAction: ((ExpectedState) -> Unit)? = null,
     onCaptureScreen: (() -> Unit)? = null,
-    chatbotProvider: ChatbotProvider = remember { SmartChatbotProvider() },
-    contextBuilder: ChatContextBuilder = remember { ChatContextBuilder() },
+    chatbotProvider: ChatbotProvider = controller.conversationCoordinator.chatbotProvider,
+    contextBuilder: ChatContextBuilder = controller.conversationCoordinator.contextBuilder,
     onRequestScreenshotHelp: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val coroutineScope = rememberCoroutineScope()
-    val messages = remember {
-        mutableStateListOf(
-            ChatMessage(
-                sender = ChatSender.TUTOR,
-                text = "Hello! I am your AI Visual Tutor assistant. Ask me anything if you get stuck, and I can mark the overlay glow on your screen and track your actions!"
-            )
-        )
-    }
+    val coordinator = controller.conversationCoordinator
+    val messages = coordinator.messages
 
     var inputText by remember { mutableStateOf("") }
-    var isThinking by remember { mutableStateOf(false) }
+    val isThinking = coordinator.isThinking
     var attachVisualContext by remember { mutableStateOf(false) }
     var showKeyInput by remember { mutableStateOf(false) }
     var keyInputValue by remember { mutableStateOf("") }
@@ -82,10 +76,7 @@ fun ChatbotPanel(
         val trimmed = query.trim()
         if (trimmed.isBlank() || isThinking) return
 
-        val userMsg = ChatMessage(sender = ChatSender.USER, text = trimmed)
-        messages.add(userMsg)
         inputText = ""
-        isThinking = true
 
         val lower = trimmed.lowercase()
         val isGoalQuery = lower.startsWith("goal:") ||
@@ -98,6 +89,14 @@ fun ChatbotPanel(
         if (isGoalQuery) {
             val goalClean = trimmed.replace(Regex("""^(goal:|plan:|i want to|i need to)\s*""", RegexOption.IGNORE_CASE), "").trim()
             val finalGoal = if (goalClean.isNotBlank()) goalClean else trimmed
+            coordinator.addMessage(
+                ChatMessage(
+                    sender = ChatSender.USER,
+                    text = trimmed,
+                    stepIndex = controller.state.currentStepIndex,
+                    source = chat.ConversationSource.WORKSPACE_PANEL
+                )
+            )
             val plan = controller.startUserGoal(finalGoal)
             if (plan != null) {
                 val firstStep = plan.steps.first()
@@ -106,61 +105,38 @@ fun ChatbotPanel(
                     sender = ChatSender.TUTOR,
                     text = "🎯 Generated a ${plan.steps.size}-step plan for \"${plan.goalText}\":\n\n$planStepsText\n\n👉 Step 1: ${firstStep.instruction}",
                     targetControl = firstStep.targetControlName,
-                    suggestedAction = if (firstStep.expectedState != null) "AUTO_VERIFY" else null
+                    suggestedAction = if (firstStep.expectedState != null) "AUTO_VERIFY" else null,
+                    stepIndex = 0,
+                    source = chat.ConversationSource.WORKSPACE_PANEL
                 )
-                messages.add(tutorMsg)
+                coordinator.addMessage(tutorMsg)
                 coroutineScope.launch {
                     if (firstStep.targetControlName != null) {
                         controller.resolveTargetForName(firstStep.targetControlName)
                         overlayManager?.showOverlay()
                     }
-                    isThinking = false
                     listState.animateScrollToItem((messages.size - 1).coerceAtLeast(0))
                 }
-            } else {
-                isThinking = false
             }
             return
         }
 
         coroutineScope.launch {
-            try {
-                val context = contextBuilder.buildContext(
-                    question = trimmed,
-                    controller = controller,
-                    screenshotCrop = controller.sessionContext.lastVisualContext?.image,
-                    attachVisualContext = attachVisualContext,
-                    chatHistory = messages
-                )
-                val response = chatbotProvider.askTutor(context)
-                val tutorMsg = ChatMessage(
-                    sender = ChatSender.TUTOR,
-                    text = response.replyText,
-                    targetControl = response.targetControl ?: currentStep?.targetControlName,
-                    suggestedAction = response.suggestedAction ?: if (currentStep?.expectedState != null) "AUTO_VERIFY" else null
-                )
-                messages.add(tutorMsg)
-
-                // If auto-highlight requested or target found, automatically illuminate glow
-                if (autoHighlight || tutorMsg.targetControl != null) {
-                    val targetName = tutorMsg.targetControl ?: currentStep?.targetControlName
-                    if (!targetName.isNullOrBlank()) {
-                        controller.resolveTargetForName(targetName)
-                        overlayManager?.showOverlay()
+            coordinator.askTutor(
+                query = trimmed,
+                source = chat.ConversationSource.WORKSPACE_PANEL,
+                attachVisualContext = attachVisualContext,
+                onResponseAction = { response ->
+                    if (autoHighlight || response.targetControl != null) {
+                        val targetName = response.targetControl ?: currentStep?.targetControlName
+                        if (!targetName.isNullOrBlank()) {
+                            controller.resolveTargetForName(targetName)
+                            overlayManager?.showOverlay()
+                        }
                     }
                 }
-            } catch (e: Exception) {
-                messages.add(
-                    ChatMessage(
-                        sender = ChatSender.SYSTEM,
-                        text = "Error communicating with tutor: ${e.message}",
-                        isError = true
-                    )
-                )
-            } finally {
-                isThinking = false
-                listState.animateScrollToItem((messages.size - 1).coerceAtLeast(0))
-            }
+            )
+            listState.animateScrollToItem((messages.size - 1).coerceAtLeast(0))
         }
     }
 

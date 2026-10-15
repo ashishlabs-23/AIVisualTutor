@@ -6,6 +6,12 @@ import java.util.UUID
 
 enum class ChatSender { USER, TUTOR, SYSTEM }
 
+enum class ConversationSource {
+    AVATAR_BUBBLE,
+    WORKSPACE_PANEL,
+    SYSTEM
+}
+
 data class ChatMessage(
     val id: String = UUID.randomUUID().toString(),
     val sender: ChatSender,
@@ -13,7 +19,10 @@ data class ChatMessage(
     val timestamp: Instant = Instant.now(),
     val targetControl: String? = null,
     val suggestedAction: String? = null,
-    val isError: Boolean = false
+    val isError: Boolean = false,
+    val stepIndex: Int? = null,
+    val goalId: String? = null,
+    val source: ConversationSource = ConversationSource.WORKSPACE_PANEL
 )
 
 data class ChatContext(
@@ -27,7 +36,9 @@ data class ChatContext(
     val activeInstruction: String? = null,
     val recentChatHistory: List<ChatMessage> = emptyList(),
     val screenshotCrop: BufferedImage? = null,
-    val includeVisualContext: Boolean = false
+    val includeVisualContext: Boolean = false,
+    val lastVerificationStatus: String? = null,
+    val lastFailureReason: String? = null
 )
 
 data class ChatResponse(

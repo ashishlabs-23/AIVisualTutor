@@ -1,5 +1,7 @@
 package ui.avatar
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -76,21 +78,22 @@ fun AvatarWindow(
     )
 ) {
     val coroutineScope = rememberCoroutineScope()
-    val chatbotProvider = remember { SmartChatbotProvider() }
-    val contextBuilder = remember { ChatContextBuilder() }
+    val coordinator = controller.conversationCoordinator
 
     var isCompact by remember { mutableStateOf(false) }
     var isHighlightBusy by remember { mutableStateOf(false) }
     var highlightFeedback by remember { mutableStateOf<String?>(null) }
-    var isExplainBusy by remember { mutableStateOf(false) }
-    var explanationText by remember { mutableStateOf<String?>(null) }
+    val isExplainBusy = coordinator.isThinking
+    val explanationText = coordinator.latestExplanationText
     var isRecoveryActive by remember { mutableStateOf(false) }
 
-    // Dynamic window resizing based on presentation mode
-    val expandedSize = DpSize(440.dp, 260.dp)
+    // Dynamic window resizing based on presentation mode and explanation expansion
+    val isExplainingActive = isExplainBusy || !explanationText.isNullOrBlank()
+    val expandedHeight = if (isExplainingActive) 360.dp else 260.dp
+    val expandedSize = DpSize(440.dp, expandedHeight)
     val compactSize = DpSize(190.dp, 60.dp)
 
-    LaunchedEffect(isCompact) {
+    LaunchedEffect(isCompact, isExplainingActive) {
         windowState.size = if (isCompact) compactSize else expandedSize
     }
 
@@ -114,7 +117,6 @@ fun AvatarWindow(
     // Clear feedback when step advances
     LaunchedEffect(state.currentStepIndex) {
         highlightFeedback = null
-        explanationText = null
         isRecoveryActive = false
     }
 
@@ -155,6 +157,100 @@ fun AvatarWindow(
     var windowScreenY by remember { mutableStateOf(windowState.position.y.value) }
     var avatarVisorLocalOffset by remember { mutableStateOf(Offset(54f, 46f)) }
 
+    // Pillar 2: Procedural Kinematics (Drag inertia tilt tracking)
+    var prevWindowX by remember { mutableStateOf(windowState.position.x.value) }
+    var rawTiltDegrees by remember { mutableStateOf(0f) }
+
+    LaunchedEffect(windowState.position.x.value) {
+        val currentX = windowState.position.x.value
+        val deltaX = currentX - prevWindowX
+        if (kotlin.math.abs(deltaX) > 1.5f) {
+            rawTiltDegrees = (-deltaX * 0.35f).coerceIn(-14f, 14f)
+        } else {
+            rawTiltDegrees = 0f
+        }
+        prevWindowX = currentX
+        windowScreenX = currentX
+    }
+
+    val animatedTiltDegrees by animateFloatAsState(
+        targetValue = rawTiltDegrees,
+        animationSpec = spring(
+            dampingRatio = androidx.compose.animation.core.Spring.DampingRatioLowBouncy,
+            stiffness = 240f
+        )
+    )
+
+    // Desktop display dimensions for docking and screen-edge intelligence
+    val screenWidth = remember {
+        try {
+            java.awt.Toolkit.getDefaultToolkit().screenSize.width.toFloat()
+        } catch (_: Exception) {
+            1920f
+        }
+    }
+    val screenHeight = remember {
+        try {
+            java.awt.Toolkit.getDefaultToolkit().screenSize.height.toFloat()
+        } catch (_: Exception) {
+            1080f
+        }
+    }
+
+    // Dynamic target docking position calculation
+    val currentDockingResult = remember(activeTargetRegion, windowState.size, screenWidth, screenHeight) {
+        if (activeTargetRegion != null && activeTargetRegion.width > 0f && activeTargetRegion.height > 0f) {
+            TargetDockPositionCalculator.calculateDockPosition(
+                target = activeTargetRegion.toScreenRect(),
+                screenSize = ScreenPoint(screenWidth, screenHeight),
+                windowSize = ScreenPoint(windowState.size.width.value, windowState.size.height.value)
+            )
+        } else {
+            null
+        }
+    }
+
+    val isAvatarOnRight = currentDockingResult?.isAvatarOnRight ?: ((windowScreenX + 440f) > (screenWidth - 80f))
+
+    // Dynamic flight kinematics across screen to dock beside highlighted target
+    var flightTargetPosition by remember { mutableStateOf<ScreenPoint?>(null) }
+
+    // Automatically trigger flight whenever an active target region is updated
+    LaunchedEffect(currentDockingResult?.position) {
+        val dest = currentDockingResult?.position ?: return@LaunchedEffect
+        flightTargetPosition = dest
+    }
+
+    LaunchedEffect(flightTargetPosition) {
+        val dest = flightTargetPosition ?: return@LaunchedEffect
+        val startX = windowState.position.x.value
+        val startY = windowState.position.y.value
+        val endX = dest.x
+        val endY = dest.y
+
+        val dx = endX - startX
+        val dy = endY - startY
+        val dist = kotlin.math.sqrt(dx * dx + dy * dy)
+        if (dist < 4f) return@LaunchedEffect
+
+        val durationMs = (dist * 0.42f).coerceIn(300f, 650f).toLong()
+        val startTime = System.currentTimeMillis()
+
+        while (true) {
+            val elapsed = System.currentTimeMillis() - startTime
+            val progress = (elapsed.toFloat() / durationMs).coerceIn(0f, 1f)
+            // Cubic Ease-Out flight profile
+            val eased = 1f - (1f - progress) * (1f - progress) * (1f - progress)
+            val curX = startX + (endX - startX) * eased
+            val curY = startY + (endY - startY) * eased
+            windowState.position = WindowPosition(curX.dp, curY.dp)
+            windowScreenX = curX
+            windowScreenY = curY
+            if (progress >= 1f) break
+            delay(16)
+        }
+    }
+
     // Calculate dynamic anchor point of the robot's visor on the desktop
     val robotVisorScreenPoint = ScreenPoint(
         x = windowScreenX + avatarVisorLocalOffset.x,
@@ -193,6 +289,35 @@ fun AvatarWindow(
         null
     }
 
+    // Dynamic global desktop coordinates for the robot emitter
+    val isPointingRight = guidanceTarget?.isPointingRight ?: (guidanceGeometry.pointingGesture?.isPointingRight ?: true)
+    val isPointingActive = guidanceTarget?.isPointingActive == true
+
+    val handOffsetX = if (isPointingRight) 38f else -38f
+    val handOffsetY = 10f
+
+    val emitterScreenPoint = if (isPointingActive) {
+        ScreenPoint(
+            x = windowScreenX + avatarVisorLocalOffset.x + handOffsetX,
+            y = windowScreenY + avatarVisorLocalOffset.y + handOffsetY
+        )
+    } else {
+        ScreenPoint(
+            x = windowScreenX + avatarVisorLocalOffset.x,
+            y = windowScreenY + avatarVisorLocalOffset.y
+        )
+    }
+
+    val effectivePointingActive = isPointingActive && visible
+
+    LaunchedEffect(emitterScreenPoint, effectivePointingActive, presentationState, visible) {
+        overlayManager.updateAvatarGuidance(
+            emitterPoint = if (visible) emitterScreenPoint else null,
+            isPointing = effectivePointingActive,
+            state = presentationState
+        )
+    }
+
     Window(
         onCloseRequest = onCloseRequest,
         state = windowState,
@@ -203,16 +328,8 @@ fun AvatarWindow(
         alwaysOnTop = true,
         visible = visible
     ) {
-        // Enforce transparent alpha background on native AWT container and track window moves
+        // Track native window screen position for dynamic guidance calculations
         LaunchedEffect(window) {
-            try {
-                window.background = java.awt.Color(0, 0, 0, 0)
-                window.contentPane.background = java.awt.Color(0, 0, 0, 0)
-                (window.contentPane as? javax.swing.JComponent)?.isOpaque = false
-                window.rootPane.isOpaque = false
-                window.rootPane.background = java.awt.Color(0, 0, 0, 0)
-            } catch (_: Exception) {}
-
             val listener = object : java.awt.event.ComponentAdapter() {
                 override fun componentMoved(e: java.awt.event.ComponentEvent) {
                     windowScreenX = window.x.toFloat()
@@ -322,158 +439,164 @@ fun AvatarWindow(
                         verticalAlignment = Alignment.Top,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        // Left: Robot Avatar & Minimize affordance
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            AvatarView(
-                                state = presentationState,
-                                size = 96.dp,
-                                guidanceTarget = guidanceTarget,
-                                modifier = Modifier.onGloballyPositioned { layoutCoordinates ->
-                                    val pos = layoutCoordinates.positionInWindow()
-                                    val sz = layoutCoordinates.size
-                                    avatarVisorLocalOffset = Offset(
-                                        pos.x + sz.width / 2f,
-                                        pos.y + sz.height * 0.42f
+                        val avatarBlock: @Composable () -> Unit = {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                AvatarView(
+                                    state = presentationState,
+                                    size = 96.dp,
+                                    guidanceTarget = guidanceTarget,
+                                    tiltDegrees = animatedTiltDegrees,
+                                    modifier = Modifier.onGloballyPositioned { layoutCoordinates ->
+                                        val pos = layoutCoordinates.positionInWindow()
+                                        val sz = layoutCoordinates.size
+                                        avatarVisorLocalOffset = Offset(
+                                            pos.x + sz.width / 2f,
+                                            pos.y + sz.height * 0.42f
+                                        )
+                                    }
+                                )
+
+                                // Minimize to Compact Dock chip
+                                Box(
+                                    modifier = Modifier
+                                        .background(Color(0x331E293B), RoundedCornerShape(8.dp))
+                                        .border(1.dp, Color(0x33475569), RoundedCornerShape(8.dp))
+                                        .clickable { isCompact = true }
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = "━ Dock",
+                                        color = Color(0xFF94A3B8),
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.SemiBold
                                     )
                                 }
-                            )
+                            }
+                        }
 
-                            // Minimize to Compact Dock chip
-                            Box(
-                                modifier = Modifier
-                                    .background(Color(0x331E293B), RoundedCornerShape(8.dp))
-                                    .border(1.dp, Color(0x33475569), RoundedCornerShape(8.dp))
-                                    .clickable { isCompact = true }
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                            ) {
-                                Text(
-                                    text = "━ Dock",
-                                    color = Color(0xFF94A3B8),
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.SemiBold
+                        val bubbleBlock: @Composable () -> Unit = {
+                            Column(modifier = Modifier.weight(1f)) {
+                                // Top Drag Handle & Close Control
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "⋮⋮ Drag to move",
+                                        color = Color(0x66CBD5E1),
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+
+                                    Box(
+                                        modifier = Modifier
+                                            .size(16.dp)
+                                            .background(Color(0x28EF4444), CircleShape)
+                                            .clickable { isCompact = true },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = "✕",
+                                            color = Color(0xFFF87171),
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(2.dp))
+
+                                val allSteps = controller.stepsForCurrentApp()
+                                val totalStepsCount = if (allSteps.isNotEmpty()) allSteps.size else 0
+                                val stepNumber = if (step != null) step.stepNumber else null
+
+                                val statusColor = when (presentationState) {
+                                    AvatarPresentationState.SUCCESS -> Color(0xFF22C55E)
+                                    AvatarPresentationState.THINKING, AvatarPresentationState.VERIFYING -> Color(0xFF38BDF8)
+                                    AvatarPresentationState.RECOVERY -> Color(0xFFF97316)
+                                    AvatarPresentationState.OFFLINE -> Color(0xFFEF4444)
+                                    else -> Color(0xFFF59E0B)
+                                }
+
+                                InstructionBubble(
+                                    stepNumber = stepNumber,
+                                    totalSteps = totalStepsCount,
+                                    instructionText = step?.instruction,
+                                    targetControlName = step?.targetControlName,
+                                    statusLabel = presentationState.defaultStatusLabel,
+                                    statusColor = statusColor,
+                                    isHighlightBusy = isHighlightBusy,
+                                    highlightFeedback = highlightFeedback,
+                                    isTailOnRight = isAvatarOnRight,
+                                    onHighlightClick = {
+                                        coroutineScope.launch {
+                                            if (isHighlightBusy) return@launch
+                                            isHighlightBusy = true
+                                            highlightFeedback = "Resolving target in Blender..."
+                                            try {
+                                                val targetName = step?.targetControlName
+                                                val result = if (!targetName.isNullOrBlank()) {
+                                                    controller.resolveTargetForName(targetName)
+                                                } else {
+                                                    controller.resolveDynamicTarget()
+                                                }
+                                                val targetRegion = result.region ?: step?.targetRegion
+                                                if (targetRegion != null) {
+                                                    controller.setHighlight(targetRegion)
+                                                    overlayManager.showOverlay(targetRegion)
+                                                    val dock = TargetDockPositionCalculator.calculateDockPosition(
+                                                        target = targetRegion.toScreenRect(),
+                                                        screenSize = ScreenPoint(screenWidth, screenHeight),
+                                                        windowSize = ScreenPoint(windowState.size.width.value, windowState.size.height.value)
+                                                    )
+                                                    flightTargetPosition = dock.position
+                                                    highlightFeedback = "✓ Target highlighted on screen"
+                                                } else {
+                                                    highlightFeedback = "Notice: Target location approximate"
+                                                    val fallbackRegion = step?.targetRegion
+                                                    if (fallbackRegion != null) {
+                                                        controller.setHighlight(fallbackRegion)
+                                                        overlayManager.showOverlay(fallbackRegion)
+                                                        val dock = TargetDockPositionCalculator.calculateDockPosition(
+                                                            target = fallbackRegion.toScreenRect(),
+                                                            screenSize = ScreenPoint(screenWidth, screenHeight),
+                                                            windowSize = ScreenPoint(windowState.size.width.value, windowState.size.height.value)
+                                                        )
+                                                        flightTargetPosition = dock.position
+                                                    }
+                                                }
+                                            } catch (ex: Exception) {
+                                                highlightFeedback = "Highlight unavailable: ${ex.message ?: "Check Blender"}"
+                                            } finally {
+                                                isHighlightBusy = false
+                                            }
+                                        }
+                                    },
+                                    isExplainBusy = isExplainBusy,
+                                    explanationText = explanationText,
+                                    onExplainClick = {
+                                        coordinator.explainCurrentStep()
+                                    },
+                                    onToggleWorkspace = onToggleWorkspace,
+                                    isWorkspaceOpen = isWorkspaceOpen,
+                                    onDismissExplanation = { coordinator.clearActiveExplanation() },
+                                    onStartTutorialClick = {
+                                        controller.goToStep(0)
+                                    }
                                 )
                             }
                         }
 
-                        // Right: Floating Instruction Bubble
-                        Column(modifier = Modifier.weight(1f)) {
-                            // Top Drag Handle & Close Control
-                            Row(
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "⋮⋮ Drag to move",
-                                    color = Color(0x66CBD5E1),
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Medium
-                                )
-
-                                Box(
-                                    modifier = Modifier
-                                        .size(16.dp)
-                                        .background(Color(0x28EF4444), CircleShape)
-                                        .clickable { isCompact = true },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = "✕",
-                                        color = Color(0xFFF87171),
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.height(2.dp))
-
-                            val allSteps = controller.stepsForCurrentApp()
-                            val totalStepsCount = if (allSteps.isNotEmpty()) allSteps.size else 0
-                            val stepNumber = if (step != null) step.stepNumber else null
-
-                            val statusColor = when (presentationState) {
-                                AvatarPresentationState.SUCCESS -> Color(0xFF22C55E)
-                                AvatarPresentationState.THINKING, AvatarPresentationState.VERIFYING -> Color(0xFF38BDF8)
-                                AvatarPresentationState.RECOVERY -> Color(0xFFF97316)
-                                AvatarPresentationState.OFFLINE -> Color(0xFFEF4444)
-                                else -> Color(0xFFF59E0B)
-                            }
-
-                            InstructionBubble(
-                                stepNumber = stepNumber,
-                                totalSteps = totalStepsCount,
-                                instructionText = step?.instruction,
-                                targetControlName = step?.targetControlName,
-                                statusLabel = presentationState.defaultStatusLabel,
-                                statusColor = statusColor,
-                                isHighlightBusy = isHighlightBusy,
-                                highlightFeedback = highlightFeedback,
-                                onHighlightClick = {
-                                    coroutineScope.launch {
-                                        if (isHighlightBusy) return@launch
-                                        isHighlightBusy = true
-                                        highlightFeedback = "Resolving target in Blender..."
-                                        try {
-                                            val targetName = step?.targetControlName
-                                            val result = if (!targetName.isNullOrBlank()) {
-                                                controller.resolveTargetForName(targetName)
-                                            } else {
-                                                controller.resolveDynamicTarget()
-                                            }
-                                            if (result.region != null) {
-                                                controller.setHighlight(result.region)
-                                                overlayManager.showOverlay(result.region)
-                                                highlightFeedback = "✓ Target highlighted on screen"
-                                            } else {
-                                                highlightFeedback = "Notice: Target location approximate"
-                                                overlayManager.showOverlay(step?.targetRegion)
-                                            }
-                                        } catch (ex: Exception) {
-                                            highlightFeedback = "Highlight unavailable: ${ex.message ?: "Check Blender"}"
-                                        } finally {
-                                            isHighlightBusy = false
-                                        }
-                                    }
-                                },
-                                isExplainBusy = isExplainBusy,
-                                explanationText = explanationText,
-                                onExplainClick = {
-                                    coroutineScope.launch {
-                                        if (isExplainBusy) return@launch
-                                        if (step == null) {
-                                            explanationText = "Start a goal or load a tutorial step to see in-depth concept guidance."
-                                            return@launch
-                                        }
-                                        isExplainBusy = true
-                                        explanationText = null
-                                        try {
-                                            val query = "Explain step: ${step.title}. ${step.instruction}"
-                                            val chatContext = contextBuilder.buildContext(
-                                                question = query,
-                                                controller = controller
-                                            )
-                                            val response = chatbotProvider.askTutor(chatContext)
-                                            explanationText = response.replyText.ifBlank {
-                                                response.explanation ?: "Focus on: ${step.instruction}\nLook for the highlighted control in Blender."
-                                            }
-                                        } catch (ex: Exception) {
-                                            explanationText = "Explanation temporarily unavailable (${ex.message}). Follow the instruction: ${step.instruction}"
-                                        } finally {
-                                            isExplainBusy = false
-                                        }
-                                    }
-                                },
-                                onToggleWorkspace = onToggleWorkspace,
-                                isWorkspaceOpen = isWorkspaceOpen,
-                                onDismissExplanation = { explanationText = null },
-                                onStartTutorialClick = {
-                                    controller.goToStep(0)
-                                }
-                            )
+                        if (isAvatarOnRight) {
+                            bubbleBlock()
+                            avatarBlock()
+                        } else {
+                            avatarBlock()
+                            bubbleBlock()
                         }
                     }
                 }

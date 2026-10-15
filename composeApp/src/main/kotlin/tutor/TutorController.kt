@@ -36,7 +36,8 @@ class TutorController(
     val goalPlanner: UserGoalPlanner = UserGoalPlanner(),
     loadMockTutorialByDefault: Boolean = false,
     screenshotHelpCoordinatorFactory: ((TutorController) -> ScreenshotHelpCoordinator)? = null,
-    recoveryCoordinatorFactory: ((TutorController) -> ClosedLoopRecoveryCoordinator)? = null
+    recoveryCoordinatorFactory: ((TutorController) -> ClosedLoopRecoveryCoordinator)? = null,
+    conversationCoordinatorFactory: ((TutorController) -> TutorConversationCoordinator)? = null
 ) {
     private val controllerScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -45,6 +46,9 @@ class TutorController(
 
     val recoveryCoordinator: ClosedLoopRecoveryCoordinator =
         recoveryCoordinatorFactory?.invoke(this) ?: ClosedLoopRecoveryCoordinator(this)
+
+    val conversationCoordinator: TutorConversationCoordinator =
+        conversationCoordinatorFactory?.invoke(this) ?: TutorConversationCoordinator(this)
 
     var sessionContext by mutableStateOf(SessionContext())
         private set
@@ -148,6 +152,8 @@ class TutorController(
             )
             recoveryCoordinator.reset()
             recoveryCoordinator.onStepChanged(0)
+            conversationCoordinator.onGoalChanged()
+            conversationCoordinator.onStepChanged(0)
         }
 
         return plan
@@ -188,6 +194,8 @@ class TutorController(
                 competenceEstimate = pedagogicalEngine.state.competenceEstimate
             )
             recoveryCoordinator.onStepChanged(targetIndex)
+            conversationCoordinator.onGoalChanged()
+            conversationCoordinator.onStepChanged(targetIndex)
         }
 
         return plan
@@ -204,6 +212,7 @@ class TutorController(
         goalProgressState = goalProgressTracker.getCurrentState()
         screenshotHelpCoordinator.resetSync()
         recoveryCoordinator.reset()
+        conversationCoordinator.onGoalChanged()
 
         if (hasLoadedMockTutorial) {
             val steps = MockTutorData.stepsFor(state.selectedApplication)
@@ -654,6 +663,7 @@ class TutorController(
             competenceEstimate = pedagogicalEngine.state.competenceEstimate
         )
         recoveryCoordinator.onStepChanged(nextIndex)
+        conversationCoordinator.onStepChanged(nextIndex)
         mutableEvents.tryEmit(TutorEvent.StepAdvanced(fromIndex, nextIndex))
     }
 
@@ -680,6 +690,7 @@ class TutorController(
             competenceEstimate = pedagogicalEngine.state.competenceEstimate
         )
         recoveryCoordinator.onStepChanged(prevIndex)
+        conversationCoordinator.onStepChanged(prevIndex)
         mutableEvents.tryEmit(TutorEvent.StepRegressed(fromIndex, prevIndex))
     }
 
@@ -735,6 +746,7 @@ class TutorController(
             competenceEstimate = pedagogicalEngine.state.competenceEstimate
         )
         recoveryCoordinator.onStepChanged(clamped)
+        conversationCoordinator.onStepChanged(clamped)
         if (clamped > fromIndex) {
             mutableEvents.tryEmit(TutorEvent.StepAdvanced(fromIndex, clamped))
         } else {

@@ -42,6 +42,7 @@ fun Arrow(
 
     // Smart positioning: if target is close to the right side, place arrow & callout on the left
     val placeOnLeft = (region.x + region.width + arrowLengthPx + calloutWidthPx + 24f) > 1850f
+    val isTopHeader = region.y < 140f
     val targetY = region.y + region.height / 2f
 
     val targetX = if (placeOnLeft) {
@@ -56,41 +57,71 @@ fun Arrow(
         targetX + arrowLengthPx
     }
 
-    // Callout box coordinates
-    val calloutXPx = if (placeOnLeft) {
+    // Callout box coordinates: when target is in top header, position below header (Y >= 150)
+    // so header menus (View, Select, Add, Object) and dropdowns opening downward remain visible.
+    val calloutXPx = if (isTopHeader) {
+        if (placeOnLeft) (targetX - gapPx - calloutWidthPx).coerceAtLeast(16f) else (region.x + region.width + 30f).coerceAtLeast(210f)
+    } else if (placeOnLeft) {
         (startX - gapPx - calloutWidthPx).coerceAtLeast(16f)
     } else {
         startX + gapPx
     }
-    val calloutYPx = (targetY - 32f).coerceAtLeast(16f)
+    val calloutYPx = if (isTopHeader) {
+        (region.y + region.height + 40f).coerceAtLeast(150f)
+    } else {
+        (targetY - 32f).coerceAtLeast(16f)
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         // 1. Directional Pointer Arrow
         Canvas(modifier = Modifier.fillMaxSize()) {
-            // Arrow shaft
-            drawLine(
-                color = color,
-                start = Offset(startX, targetY),
-                end = Offset(targetX, targetY),
-                strokeWidth = 3.5f
-            )
+            if (isTopHeader) {
+                val arrowHeadX = region.x + region.width / 2f
+                val arrowHeadY = region.y + region.height + 4f
+                val arrowBaseX = (calloutXPx + 24f).coerceAtLeast(arrowHeadX + 10f)
+                val arrowBaseY = calloutYPx
 
-            // Arrowhead pointing right or left toward target
-            val headPath = Path().apply {
-                if (placeOnLeft) {
-                    moveTo(targetX, targetY)
-                    lineTo(targetX - 16f, targetY - 8f)
-                    lineTo(targetX - 11f, targetY)
-                    lineTo(targetX - 16f, targetY + 8f)
-                } else {
-                    moveTo(targetX, targetY)
-                    lineTo(targetX + 16f, targetY - 8f)
-                    lineTo(targetX + 11f, targetY)
-                    lineTo(targetX + 16f, targetY + 8f)
+                drawLine(
+                    color = color,
+                    start = Offset(arrowBaseX, arrowBaseY),
+                    end = Offset(arrowHeadX, arrowHeadY),
+                    strokeWidth = 3.5f
+                )
+
+                val headPath = Path().apply {
+                    moveTo(arrowHeadX, arrowHeadY)
+                    lineTo(arrowHeadX - 8f, arrowHeadY + 16f)
+                    lineTo(arrowHeadX, arrowHeadY + 11f)
+                    lineTo(arrowHeadX + 8f, arrowHeadY + 16f)
+                    close()
                 }
-                close()
+                drawPath(path = headPath, color = color)
+            } else {
+                // Arrow shaft
+                drawLine(
+                    color = color,
+                    start = Offset(startX, targetY),
+                    end = Offset(targetX, targetY),
+                    strokeWidth = 3.5f
+                )
+
+                // Arrowhead pointing right or left toward target
+                val headPath = Path().apply {
+                    if (placeOnLeft) {
+                        moveTo(targetX, targetY)
+                        lineTo(targetX - 16f, targetY - 8f)
+                        lineTo(targetX - 11f, targetY)
+                        lineTo(targetX - 16f, targetY + 8f)
+                    } else {
+                        moveTo(targetX, targetY)
+                        lineTo(targetX + 16f, targetY - 8f)
+                        lineTo(targetX + 11f, targetY)
+                        lineTo(targetX + 16f, targetY + 8f)
+                    }
+                    close()
+                }
+                drawPath(path = headPath, color = color)
             }
-            drawPath(path = headPath, color = color)
         }
 
         // 2. Guidance Callout Card

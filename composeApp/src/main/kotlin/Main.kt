@@ -28,6 +28,7 @@ import tutor.TutorController
 import ui.ScreenshotPreviewWindow
 import ui.TutorDock
 import ui.TutorPanel
+import ui.avatar.AvatarPresentationState
 import ui.avatar.AvatarWindow
 import java.io.File
 import java.nio.file.Files
@@ -347,7 +348,7 @@ fun main() {
         onDispose { controller.sessionContext.lastVisualContext?.image?.flush() }
     }
 
-    val dockSize = DpSize(160.dp, 52.dp)
+    val dockSize = DpSize(175.dp, 52.dp)
     val panelSize = DpSize(400.dp, 610.dp)
 
     val screenBounds = remember { java.awt.Toolkit.getDefaultToolkit().screenSize }
@@ -384,7 +385,7 @@ fun main() {
         onCloseRequest = ::exitApplication,
         state = mainWindowState,
         title = "AI Visual Tutor",
-        visible = isTutorWindowsVisible && (isPanelExpanded || !isAvatarVisible),
+        visible = isTutorWindowsVisible,
         undecorated = true,
         transparent = true,
         resizable = false,
@@ -422,10 +423,27 @@ fun main() {
                             restoreOverlayAction = { isTutorWindowsVisible = true }
                         )
                     }
-                }
+                },
+                isAvatarVisible = isAvatarVisible,
+                onToggleAvatar = {
+                    isAvatarVisible = !isAvatarVisible
+                    if (isAvatarVisible) {
+                        // Re-center floating avatar companion right next to the panel
+                        val currentPanelX = mainWindowState.position.x
+                        val currentPanelY = mainWindowState.position.y
+                        avatarWindowState.position = WindowPosition(
+                            x = (currentPanelX - 445.dp).coerceAtLeast(10.dp),
+                            y = currentPanelY
+                        )
+                    }
+                },
+                isBlenderConnected = isBlenderConnected
             )
         } else {
-            TutorDock(onClick = { isPanelExpanded = true })
+            TutorDock(
+                onClick = { isPanelExpanded = true },
+                avatarState = if (isBlenderConnected) AvatarPresentationState.COMPACT else AvatarPresentationState.OFFLINE
+            )
         }
     }
 
@@ -512,6 +530,11 @@ fun main() {
         )
     }
 
+    // Clear any stale step-specific highlight override when tutorial steps change
+    LaunchedEffect(controller.state.currentStepIndex, controller.activePlan) {
+        overlayManager.clearActiveRegion()
+    }
+
     if (overlayManager.isOverlayVisible) {
         val currentStep = controller.stepsForCurrentApp().getOrNull(controller.state.currentStepIndex)
         val resolvedRegion = overlayManager.activeHighlightRegion
@@ -519,6 +542,7 @@ fun main() {
             ?: controller.state.adaptiveInstruction?.targetRegion
             ?: currentStep?.targetRegion
         val resolvedTitle = controller.state.adaptiveInstruction?.targetControlName
+            ?: currentStep?.targetControlName
             ?: currentStep?.title
             ?: "Step ${controller.state.currentStepIndex + 1}"
         val resolvedInstruction = controller.state.adaptiveInstruction?.instructionText
@@ -532,6 +556,7 @@ fun main() {
             stepInstruction = resolvedInstruction,
             blenderWindowLocator = blenderWindowLocator,
             visible = isTutorWindowsVisible,
+            overlayManager = overlayManager,
             onCloseRequest = { overlayManager.hideOverlay() }
         )
     }

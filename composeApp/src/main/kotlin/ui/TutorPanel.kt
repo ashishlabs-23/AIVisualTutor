@@ -48,6 +48,9 @@ import tutor.OutcomeRequirementLevel
 import tutor.OutcomeSatisfactionStatus
 import tutor.TutorController
 import tutor.VerificationStrategy
+import ui.avatar.AvatarPresentationState
+import ui.avatar.AvatarStateMachine
+import ui.avatar.AvatarView
 
 /**
  * Transparent floating frosted-glass HUD panel designed to overlay directly
@@ -67,7 +70,10 @@ fun WindowScope.TutorPanel(
     onCaptureBlenderBaseline: (ExpectedState) -> Unit = {},
     onVerifyBlenderAction: (ExpectedState) -> Unit = {},
     onAutoVerifyBlenderAction: (ExpectedState) -> Unit = {},
-    onRequestScreenshotHelp: (() -> Unit)? = null
+    onRequestScreenshotHelp: (() -> Unit)? = null,
+    isAvatarVisible: Boolean = true,
+    onToggleAvatar: () -> Unit = {},
+    isBlenderConnected: Boolean = false
 ) {
     val coroutineScope = rememberCoroutineScope()
     val state = controller.state
@@ -80,6 +86,30 @@ fun WindowScope.TutorPanel(
     var goalValidationError by remember { mutableStateOf<String?>(null) }
     var inputQuery by remember { mutableStateOf("") }
     var showFullChat by remember { mutableStateOf(false) }
+
+    val lastObs = controller.recoveryCoordinator.workflow.lastObservation
+    val isBlenderReallyConnected = isBlenderConnected || (lastObs?.status == context.BlenderObservationStatus.AVAILABLE)
+
+    val resolvedAvatarState = remember(
+        isBlenderReallyConnected,
+        isBlenderVerificationBusy,
+        showFullChat,
+        state.lastPedagogicalOutcome,
+        step,
+        state.currentHighlight
+    ) {
+        AvatarStateMachine.resolvePresentationState(
+            isBlenderConnected = isBlenderReallyConnected,
+            isCompact = false,
+            isVerificationBusy = isBlenderVerificationBusy,
+            isThinking = isBlenderVerificationBusy,
+            isExplaining = showFullChat,
+            isVerifiedSuccess = state.lastPedagogicalOutcome == PedagogicalOutcome.VERIFIED_SUCCESS,
+            isRecoveryActive = state.lastPedagogicalOutcome == PedagogicalOutcome.VERIFIED_FAILURE || state.lastPedagogicalOutcome == PedagogicalOutcome.UNCERTAIN,
+            activeStep = step,
+            hasTarget = state.currentHighlight != null || step?.targetRegion != null
+        )
+    }
 
     Box(
         modifier = Modifier
@@ -117,14 +147,27 @@ fun WindowScope.TutorPanel(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(
                             modifier = Modifier
-                                .size(34.dp)
+                                .size(42.dp)
                                 .background(
-                                    Brush.linearGradient(listOf(Color(0xFF8B5CF6), Color(0xFF6366F1))),
-                                    RoundedCornerShape(10.dp)
-                                ),
+                                    Brush.radialGradient(
+                                        listOf(Color(0xFF283042), Color(0xFF161922))
+                                    ),
+                                    RoundedCornerShape(12.dp)
+                                )
+                                .border(
+                                    1.dp,
+                                    Brush.linearGradient(
+                                        listOf(Color(0xFFF5792A), Color(0xFF8B5CF6))
+                                    ),
+                                    RoundedCornerShape(12.dp)
+                                )
+                                .clickable { onToggleAvatar() },
                             contentAlignment = Alignment.Center
                         ) {
-                            Text(text = "✨", fontSize = 16.sp)
+                            AvatarView(
+                                state = resolvedAvatarState,
+                                size = 36.dp
+                            )
                         }
                         Spacer(modifier = Modifier.width(10.dp))
                         Column {
@@ -169,9 +212,32 @@ fun WindowScope.TutorPanel(
                     }
 
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        // Companion Toggle Button
+                        Box(
+                            modifier = Modifier
+                                .background(
+                                    if (isAvatarVisible) Color(0x33F5792A) else Color(0x22475569),
+                                    RoundedCornerShape(8.dp)
+                                )
+                                .border(
+                                    1.dp,
+                                    if (isAvatarVisible) Color(0x88F5792A) else Color(0x33475569),
+                                    RoundedCornerShape(8.dp)
+                                )
+                                .clickable { onToggleAvatar() }
+                                .padding(horizontal = 7.dp, vertical = 3.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = if (isAvatarVisible) "🤖 Companion ON" else "🤖 Companion OFF",
+                                color = if (isAvatarVisible) Color(0xFFFFA757) else Color(0xFF94A3B8),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
                         Text(
                             text = "—",
                             color = Color(0xFF94A3B8),
@@ -207,27 +273,46 @@ fun WindowScope.TutorPanel(
                         .verticalScroll(scrollState),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    // Introduction Card
-                    Column(
+                    // Hero Mascot Introduction Card
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(Color(0x29181D2D), RoundedCornerShape(16.dp))
-                            .border(1.dp, Color(0x2B475569), RoundedCornerShape(16.dp))
-                            .padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                            .background(
+                                Brush.horizontalGradient(
+                                    listOf(Color(0x38191E2E), Color(0x29181D2D))
+                                ),
+                                RoundedCornerShape(16.dp)
+                            )
+                            .border(1.dp, Color(0x33F5792A), RoundedCornerShape(16.dp))
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Text(
-                            text = "Goal-Driven 3D Tutoring",
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 15.sp
+                        AvatarView(
+                            state = resolvedAvatarState,
+                            size = 64.dp
                         )
-                        Text(
-                            text = "Enter any 3D task or object. AI Visual Tutor will generate a structured plan, illuminate tools on screen, and verify your actions closed-loop in Blender.",
-                            color = Color(0xFFCBD5E1),
-                            fontSize = 12.sp,
-                            lineHeight = 16.sp
-                        )
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                text = "Goal-Driven 3D Tutoring",
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp
+                            )
+                            Text(
+                                text = if (isBlenderReallyConnected) {
+                                    "I'm ready to assist! Enter any 3D task or pick a sample goal below to begin interactive step-by-step guidance."
+                                } else {
+                                    "Welcome! Connect Blender with the AI Visual Tutor state adapter to unlock live closed-loop guidance."
+                                },
+                                color = Color(0xFFCBD5E1),
+                                fontSize = 11.5.sp,
+                                lineHeight = 15.sp
+                            )
+                        }
                     }
 
                     // Goal Input Card
@@ -1029,15 +1114,25 @@ fun WindowScope.TutorPanel(
                             Text("📸 Analyze", color = Color(0xFF93C5FD), fontSize = 10.sp, fontWeight = FontWeight.Bold)
                         }
 
+                        val isGlowActive = overlayManager.isOverlayVisible && controller.state.screenAssistanceEnabled && overlayManager.isGlowEnabled
                         Box(
                             modifier = Modifier
                                 .weight(1f)
-                                .background(Color(0x2E1E2436), RoundedCornerShape(8.dp))
-                                .border(1.dp, Color(0x33475569), RoundedCornerShape(8.dp))
+                                .background(
+                                    if (isGlowActive) Color(0x338B5CF6) else Color(0x2E1E2436),
+                                    RoundedCornerShape(8.dp)
+                                )
+                                .border(
+                                    1.dp,
+                                    if (isGlowActive) Color(0x80A78BFA) else Color(0x33475569),
+                                    RoundedCornerShape(8.dp)
+                                )
                                 .clickable {
-                                    if (overlayManager.isOverlayVisible) {
+                                    if (isGlowActive) {
+                                        overlayManager.updateGlowEnabled(false)
                                         overlayManager.hideOverlay()
                                     } else {
+                                        overlayManager.updateGlowEnabled(true)
                                         if (!controller.state.screenAssistanceEnabled) {
                                             controller.toggleScreenAssistance()
                                         }
@@ -1054,8 +1149,8 @@ fun WindowScope.TutorPanel(
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = if (overlayManager.isOverlayVisible) "✨ Glow Off" else "✨ Glow On",
-                                color = Color(0xFFA78BFA),
+                                text = if (isGlowActive) "✨ Glow On" else "✨ Glow Off",
+                                color = if (isGlowActive) Color(0xFFDDD6FE) else Color(0xFF94A3B8),
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold
                             )

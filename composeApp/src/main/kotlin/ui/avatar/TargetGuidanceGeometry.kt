@@ -233,3 +233,115 @@ object TargetGuidanceCalculator {
         )
     }
 }
+
+/**
+ * Relative side of the target where the avatar companion window docks.
+ */
+enum class DockSide {
+    /** Companion is placed to the right of the target; robot is on left edge of its window pointing left. */
+    RIGHT_OF_TARGET,
+    /** Companion is placed to the left of the target; robot is on right edge of its window pointing right. */
+    LEFT_OF_TARGET,
+    /** Companion is placed above the target. */
+    ABOVE_TARGET,
+    /** Companion is placed below the target. */
+    BELOW_TARGET
+}
+
+/**
+ * Result of target docking position calculation for the avatar companion window.
+ */
+data class TargetDockingResult(
+    /** Calculated desktop screen coordinates (X, Y) for the window top-left corner. */
+    val position: ScreenPoint,
+    /** Whether the robot avatar is placed on the right side of the window (speech bubble on left). */
+    val isAvatarOnRight: Boolean,
+    /** Relative docking orientation side relative to the target element. */
+    val dockSide: DockSide
+)
+
+/**
+ * Calculates optimal docking position for the floating Avatar window relative to
+ * the active screen target element, guaranteeing collision-free visibility and natural pointing.
+ */
+object TargetDockPositionCalculator {
+
+    fun calculateDockPosition(
+        target: ScreenRect?,
+        screenSize: ScreenPoint = ScreenPoint(1920f, 1080f),
+        windowSize: ScreenPoint = ScreenPoint(440f, 260f),
+        gap: Float = 24f,
+        margin: Float = 20f,
+        avoidHeaderObstruction: Boolean = false
+    ): TargetDockingResult {
+        if (target == null || !target.isValid || !target.isFinite) {
+            // Default resting position near top-right
+            val defX = (screenSize.x - windowSize.x - margin).coerceAtLeast(margin)
+            val defY = margin + 50f
+            return TargetDockingResult(
+                position = ScreenPoint(defX, defY),
+                isAvatarOnRight = true,
+                dockSide = DockSide.LEFT_OF_TARGET
+            )
+        }
+
+        val targetCenterX = target.centerX
+        val targetCenterY = target.centerY
+
+        // Space available to the right of the target
+        val rightEdge = target.x + target.width
+        val spaceRight = screenSize.x - (rightEdge + gap + windowSize.x + margin)
+
+        // Space available to the left of the target
+        val spaceLeft = target.x - (gap + windowSize.x + margin)
+
+        // Clamped vertical position aligning avatar window vertically with target center
+        val targetY = if (avoidHeaderObstruction && target.y < 140f) {
+            // When instructed to avoid header obstruction and target is in the top header row,
+            // position the companion below the header (Y >= 160) so header menus (View, Select, Add)
+            // and dropdown menus opening downwards remain completely visible and clickable.
+            (target.y + target.height + 40f).coerceIn(160f, (screenSize.y - windowSize.y - margin).coerceAtLeast(160f))
+        } else {
+            (targetCenterY - windowSize.y / 2f)
+                .coerceIn(margin + 20f, (screenSize.y - windowSize.y - margin - 30f).coerceAtLeast(margin + 20f))
+        }
+
+        return when {
+            // Case 1: Ample space to the right of target -> dock to right of target.
+            // Robot is on left of window pointing left directly into the target.
+            spaceRight >= 0f -> {
+                TargetDockingResult(
+                    position = ScreenPoint(rightEdge + gap, targetY),
+                    isAvatarOnRight = false,
+                    dockSide = DockSide.RIGHT_OF_TARGET
+                )
+            }
+            // Case 2: Ample space to the left of target -> dock to left of target.
+            // Robot is on right of window pointing right directly into the target.
+            spaceLeft >= 0f -> {
+                TargetDockingResult(
+                    position = ScreenPoint(target.x - windowSize.x - gap, targetY),
+                    isAvatarOnRight = true,
+                    dockSide = DockSide.LEFT_OF_TARGET
+                )
+            }
+            // Case 3: Target is centered and very wide (e.g. spans viewport) -> pick side with more room
+            spaceRight > spaceLeft -> {
+                val clampedX = (screenSize.x - windowSize.x - margin).coerceAtLeast(margin)
+                TargetDockingResult(
+                    position = ScreenPoint(clampedX, targetY),
+                    isAvatarOnRight = false,
+                    dockSide = DockSide.RIGHT_OF_TARGET
+                )
+            }
+            else -> {
+                TargetDockingResult(
+                    position = ScreenPoint(margin, targetY),
+                    isAvatarOnRight = true,
+                    dockSide = DockSide.LEFT_OF_TARGET
+                )
+            }
+        }
+    }
+}
+

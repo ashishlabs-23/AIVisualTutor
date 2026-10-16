@@ -1,10 +1,12 @@
 package ui.avatar
 
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -26,6 +28,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlin.math.cos
@@ -33,17 +36,8 @@ import kotlin.math.sin
 
 /**
  * Procedural Compose Desktop rendering of the AI Visual Tutor robot avatar
- * matching the official "AI Visual Tutor — Avatar States & PRD" design specification.
- *
- * Visual Characteristics:
- * - Rounded, friendly pearl-white floating helmet chassis (#FFFFFF / #F8FAFC).
- * - Glossy obsidian faceplate (#0E1117) with subtle glass specular reflection.
- * - Earcups with glowing Blender-orange concentric rings (#F5792A / #FFA757).
- * - Floating white body collar with warm under-glow.
- * - Floating expressive robot hands/paws (Idle, Thinking, Explaining, Pointing, Success, Error, Searching).
- * - Large, expressive amber/orange illuminated LED eyes with dynamic gaze tracking.
- * - Floating state badges (thinking dots '...', success cheer, error exclamation '!', lightbulb, Zzz).
- * - 100% resolution-independent Skia vector graphics.
+ * matching the official "AI Visual Tutor — Avatar States & PRD" design specification
+ * and enhanced with the 6 Pillars of Frontend Avatar Experience.
  */
 @Composable
 fun AvatarView(
@@ -52,17 +46,20 @@ fun AvatarView(
     size: Dp = 120.dp,
     isReducedMotion: Boolean = false,
     guidanceTarget: AvatarGuidanceTarget? = null,
-    pointingAngleRadians: Float? = null
+    pointingAngleRadians: Float? = null,
+    tiltDegrees: Float = 0f
 ) {
     val infiniteTransition = rememberInfiniteTransition()
 
-    // 1. Subtle floating breathing pulse (disabled in reduced motion or offline)
-    val floatPulse by if (!isReducedMotion && state != AvatarPresentationState.OFFLINE) {
+    // 1. Layered harmonic breathing float (Pillar 2: Procedural Kinematics)
+    val floatPrimary by if (!isReducedMotion) {
+        val duration = if (state == AvatarPresentationState.OFFLINE) 3600 else 2400
+        val targetAmp = if (state == AvatarPresentationState.OFFLINE) 1.2f else 2.2f
         infiniteTransition.animateFloat(
-            initialValue = -2.5f,
-            targetValue = 2.5f,
+            initialValue = -targetAmp,
+            targetValue = targetAmp,
             animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 2200, easing = FastOutSlowInEasing),
+                animation = tween(durationMillis = duration, easing = FastOutSlowInEasing),
                 repeatMode = RepeatMode.Reverse
             )
         )
@@ -70,31 +67,111 @@ fun AvatarView(
         remember { mutableStateOf(0f) }
     }
 
-    val glowPulse by if (!isReducedMotion && state != AvatarPresentationState.OFFLINE) {
+    val floatSecondary by if (!isReducedMotion) {
+        val duration = if (state == AvatarPresentationState.OFFLINE) 2200 else 1300
+        val targetAmp = if (state == AvatarPresentationState.OFFLINE) 0.4f else 0.8f
         infiniteTransition.animateFloat(
-            initialValue = 0.70f,
-            targetValue = 1.0f,
+            initialValue = -targetAmp,
+            targetValue = targetAmp,
             animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 1800, easing = FastOutSlowInEasing),
+                animation = tween(durationMillis = duration, easing = FastOutSlowInEasing),
                 repeatMode = RepeatMode.Reverse
             )
         )
     } else {
-        remember { mutableStateOf(0.85f) }
+        remember { mutableStateOf(0f) }
     }
 
-    // 2. Periodic subtle eye blink (~4 second cycle)
-    val blinkScale by if (!isReducedMotion && (state == AvatarPresentationState.IDLE || state == AvatarPresentationState.GUIDING || state == AvatarPresentationState.WAITING_FOR_USER)) {
+    val floatPulse = floatPrimary + floatSecondary * 0.45f
+
+    val guidanceClock = rememberSynchronizedGuidanceClock()
+
+    val glowPulse = if (!isReducedMotion) {
+        if (state == AvatarPresentationState.OFFLINE) {
+            0.65f + (guidanceClock.breathingPulse - 0.35f) * (0.25f / 0.60f)
+        } else {
+            0.70f + (guidanceClock.breathingPulse - 0.35f) * (0.30f / 0.60f)
+        }
+    } else {
+        0.85f
+    }
+
+    // 2. Biological Saccadic Micro-Jitter (Pillar 1: Biological Realism)
+    val isSaccadesPermitted = !isReducedMotion &&
+        state != AvatarPresentationState.OFFLINE &&
+        state != AvatarPresentationState.COMPACT
+
+    val saccadeNormX by if (isSaccadesPermitted) {
+        infiniteTransition.animateFloat(
+            initialValue = 0f,
+            targetValue = 0f,
+            animationSpec = infiniteRepeatable(
+                animation = keyframes {
+                    durationMillis = 2800
+                    0f at 0
+                    0f at 1700
+                    0.12f at 1760
+                    0.09f at 1900
+                    -0.08f at 2300
+                    0f at 2500
+                    0f at 2800
+                },
+                repeatMode = RepeatMode.Restart
+            )
+        )
+    } else {
+        remember { mutableStateOf(0f) }
+    }
+
+    val saccadeNormY by if (isSaccadesPermitted) {
+        infiniteTransition.animateFloat(
+            initialValue = 0f,
+            targetValue = 0f,
+            animationSpec = infiniteRepeatable(
+                animation = keyframes {
+                    durationMillis = 2800
+                    0f at 0
+                    0f at 1700
+                    -0.09f at 1760
+                    -0.05f at 1900
+                    0.06f at 2300
+                    0f at 2500
+                    0f at 2800
+                },
+                repeatMode = RepeatMode.Restart
+            )
+        )
+    } else {
+        remember { mutableStateOf(0f) }
+    }
+
+    // 3. Dynamic Context-Sensitive Blinking (Pillar 1: Cognitive blink modulation)
+    val blinkDurationMillis = when (state) {
+        AvatarPresentationState.THINKING, AvatarPresentationState.VERIFYING -> 1800
+        AvatarPresentationState.EXPLAINING -> 5600
+        else -> 3800
+    }
+
+    val isBlinkingPermitted = !isReducedMotion && (
+        state == AvatarPresentationState.IDLE ||
+        state == AvatarPresentationState.GUIDING ||
+        state == AvatarPresentationState.WAITING_FOR_USER ||
+        state == AvatarPresentationState.EXPLAINING ||
+        state == AvatarPresentationState.THINKING ||
+        state == AvatarPresentationState.VERIFYING
+    )
+
+    val blinkScale by if (isBlinkingPermitted) {
         infiniteTransition.animateFloat(
             initialValue = 1.0f,
             targetValue = 0.1f,
             animationSpec = infiniteRepeatable(
-                animation = androidx.compose.animation.core.keyframes {
-                    durationMillis = 4000
+                animation = keyframes {
+                    durationMillis = blinkDurationMillis
                     1.0f at 0
-                    1.0f at 3800
-                    0.15f at 3900
-                    1.0f at 4000
+                    1.0f at (blinkDurationMillis - 180)
+                    0.12f at (blinkDurationMillis - 90)
+                    1.0f at blinkDurationMillis
                 },
                 repeatMode = RepeatMode.Restart
             )
@@ -103,7 +180,7 @@ fun AvatarView(
         remember { mutableStateOf(1.0f) }
     }
 
-    // 3. Floating thinking dots / searching pulse animation
+    // 4. Floating thinking dots / searching pulse animation
     val auxiliaryPulse by if (!isReducedMotion && (state == AvatarPresentationState.THINKING || state == AvatarPresentationState.VERIFYING)) {
         infiniteTransition.animateFloat(
             initialValue = 0f,
@@ -117,7 +194,7 @@ fun AvatarView(
         remember { mutableStateOf(0.5f) }
     }
 
-    // 4. Target-Aware Dynamic Gaze Transitions
+    // 5. Target-Aware Dynamic Gaze Transitions with Saccadic integration
     val isGazePermitted = (state == AvatarPresentationState.POINTING ||
         state == AvatarPresentationState.GUIDING ||
         state == AvatarPresentationState.WAITING_FOR_USER) &&
@@ -149,7 +226,45 @@ fun AvatarView(
         remember(targetGazeY) { mutableStateOf(targetGazeY) }
     }
 
-    // 5. Directional Pointing Gesture Articulation
+    val finalGazeNormX = (animatedGazeNormX + saccadeNormX).coerceIn(-1.0f, 1.0f)
+    val finalGazeNormY = (animatedGazeNormY + saccadeNormY).coerceIn(-1.0f, 1.0f)
+
+    // 6. Traveling Laser Energy Wave Pulse (Pillar 3: Shared Harmonic Photon Phase)
+    val laserPulsePhase = if (!isReducedMotion) {
+        guidanceClock.photonPhase
+    } else {
+        0.5f
+    }
+
+    // 7. Speech Visor Wave Phase (Pillar 4: Audio Visemes)
+    val speechWavePhase by if (!isReducedMotion && state == AvatarPresentationState.EXPLAINING) {
+        infiniteTransition.animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 550, easing = LinearEasing),
+                repeatMode = RepeatMode.Restart
+            )
+        )
+    } else {
+        remember { mutableStateOf(0f) }
+    }
+
+    // 8. Celebratory Confetti Progress (Pillar 6: Micro-Interactions)
+    val celebrationProgress by if (!isReducedMotion && state == AvatarPresentationState.SUCCESS) {
+        infiniteTransition.animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 1500, easing = LinearEasing),
+                repeatMode = RepeatMode.Restart
+            )
+        )
+    } else {
+        remember { mutableStateOf(0f) }
+    }
+
+    // 9. Directional Pointing Gesture Articulation
     val isPointingPermitted = (state == AvatarPresentationState.POINTING ||
         (guidanceTarget?.isPointingActive == true) ||
         pointingAngleRadians != null) &&
@@ -177,7 +292,11 @@ fun AvatarView(
     val isPointingRight = guidanceTarget?.isPointingRight ?: (activePointingAngle in -1.57f..1.57f)
 
     Box(
-        modifier = modifier.size(size),
+        modifier = modifier
+            .size(size)
+            .graphicsLayer {
+                rotationZ = tiltDegrees
+            },
         contentAlignment = Alignment.Center
     ) {
         Canvas(modifier = Modifier.size(size)) {
@@ -365,7 +484,26 @@ fun AvatarView(
                 )
             )
 
-            // 6. Expressive Illuminated Amber Eyes
+            // Visor Lower Rim Fresnel Sheen Arc (Pillar 3: Visual Optics)
+            drawArc(
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        Color.Transparent,
+                        Color(0x2838BDF8),
+                        Color(0x35FFA757)
+                    ),
+                    startY = visorTop + visorH * 0.5f,
+                    endY = visorTop + visorH
+                ),
+                startAngle = 20f,
+                sweepAngle = 140f,
+                useCenter = false,
+                topLeft = Offset(visorLeft + 2.5f, visorTop + 2f),
+                size = Size(visorW - 5f, visorH - 4f),
+                style = Stroke(width = 1.5f)
+            )
+
+            // 6. Expressive Illuminated Amber Eyes (Pillar 1: Biological micro-saccades & blinking)
             drawReferenceEyes(
                 state = state,
                 centerX = centerX,
@@ -375,11 +513,32 @@ fun AvatarView(
                 blinkScale = blinkScale,
                 primaryOrange = primaryOrange,
                 accentOrange = accentOrangeGlow,
-                gazeNormX = animatedGazeNormX,
-                gazeNormY = animatedGazeNormY
+                gazeNormX = finalGazeNormX,
+                gazeNormY = finalGazeNormY
             )
 
-            // 7. Floating Hands / Paws & Gestures (Exact Reference Match)
+            // 7. Speech Visor Wave / Procedural Viseme Mouth (Pillar 4: Audio Visemes)
+            if (state == AvatarPresentationState.EXPLAINING) {
+                val mouthY = centerY + visorH * 0.28f
+                val waveW = visorW * 0.32f
+                val waveLeft = centerX - waveW / 2f
+                val barCount = 5
+                val barSpacing = waveW / (barCount - 1)
+                for (i in 0 until barCount) {
+                    val barX = waveLeft + i * barSpacing
+                    val phaseOffset = i * 0.9f
+                    val barAmplitude = 1.5f + 4.5f * (0.5f + 0.5f * sin((speechWavePhase * 6.28318f) + phaseOffset))
+                    drawLine(
+                        color = accentOrangeGlow,
+                        start = Offset(barX, mouthY - barAmplitude),
+                        end = Offset(barX, mouthY + barAmplitude),
+                        strokeWidth = 2.0f,
+                        cap = StrokeCap.Round
+                    )
+                }
+            }
+
+            // 8. Floating Hands / Paws & Gestures (Pillar 3: Traveling Laser Pulse)
             if (state != AvatarPresentationState.COMPACT) {
                 drawFloatingHands(
                     state = state,
@@ -391,18 +550,20 @@ fun AvatarView(
                     pointingAngleRad = activePointingAngle,
                     isPointingRight = isPointingRight,
                     primaryOrange = primaryOrange,
-                    auxiliaryPulse = auxiliaryPulse
+                    auxiliaryPulse = auxiliaryPulse,
+                    laserPulsePhase = laserPulsePhase
                 )
             }
 
-            // 8. Overhead Floating State Badges (..., !, 💡, ?, Zzz)
+            // 9. Overhead Floating State Badges & Particles (Pillar 6: Micro-Interactions)
             if (state != AvatarPresentationState.COMPACT) {
                 drawStateBadges(
                     state = state,
                     centerX = centerX,
                     headTop = headTop,
                     primaryOrange = primaryOrange,
-                    auxiliaryPulse = auxiliaryPulse
+                    auxiliaryPulse = auxiliaryPulse,
+                    celebrationProgress = celebrationProgress
                 )
             }
         }
@@ -493,7 +654,7 @@ private fun DrawScope.drawReferenceEyes(
         }
 
         AvatarPresentationState.OFFLINE -> {
-            // Sleeping / No Blender: peaceful curved resting lines (- -)
+            // Sleeping / Waiting for Blender: peaceful curved resting lines (- -) with subtle warm glow
             val lineW = visorW * 0.18f
             drawArc(
                 color = eyeColor,
@@ -512,6 +673,17 @@ private fun DrawScope.drawReferenceEyes(
                 topLeft = Offset(rightEyeX - lineW / 2f, eyeY - 4f),
                 size = Size(lineW, 10f),
                 style = Stroke(width = 3.2f, cap = StrokeCap.Round)
+            )
+            // Soft warm amber glints beneath the sleeping eyelids
+            drawCircle(
+                color = primaryOrange.copy(alpha = 0.55f),
+                radius = 1.8f,
+                center = Offset(leftEyeX, eyeY + 1.2f)
+            )
+            drawCircle(
+                color = primaryOrange.copy(alpha = 0.55f),
+                radius = 1.8f,
+                center = Offset(rightEyeX, eyeY + 1.2f)
             )
         }
 
@@ -598,7 +770,8 @@ private fun DrawScope.drawFloatingHands(
     pointingAngleRad: Float,
     isPointingRight: Boolean,
     primaryOrange: Color,
-    auxiliaryPulse: Float
+    auxiliaryPulse: Float,
+    laserPulsePhase: Float
 ) {
     val handRadius = headW * 0.075f
     val handBrush = Brush.radialGradient(
@@ -606,8 +779,8 @@ private fun DrawScope.drawFloatingHands(
         radius = handRadius * 1.2f
     )
 
-    when (state) {
-        AvatarPresentationState.POINTING -> {
+    when {
+        state == AvatarPresentationState.POINTING || (armExtension > 0.05f) -> {
             // Directional Pointing Gesture: Hand extends pointing towards Blender target
             val shoulderX = if (isPointingRight) centerX + headW * 0.38f else centerX - headW * 0.38f
             val shoulderY = centerY + headH * 0.18f
@@ -624,6 +797,7 @@ private fun DrawScope.drawFloatingHands(
             val laserTipX = handX + dirX * laserLength
             val laserTipY = handY + dirY * laserLength
 
+            // Base Laser Beam
             drawLine(
                 brush = Brush.linearGradient(
                     colors = listOf(primaryOrange, primaryOrange.copy(alpha = 0.2f)),
@@ -636,15 +810,35 @@ private fun DrawScope.drawFloatingHands(
                 cap = StrokeCap.Round
             )
 
+            // Traveling Laser Energy Wave Packet (Pillar 3: Visual FX)
+            val packetT = laserPulsePhase.coerceIn(0f, 1f)
+            val packetX = handX + dirX * (laserLength * packetT)
+            val packetY = handY + dirY * (laserLength * packetT)
+            val packetAlpha = (sin(packetT * 3.14159f)).coerceIn(0f, 1f)
+            drawCircle(
+                color = Color(0xFFFFA757).copy(alpha = packetAlpha),
+                radius = 3.5f,
+                center = Offset(packetX, packetY)
+            )
+
             // Extended Pointing Hand
             drawCircle(brush = handBrush, radius = handRadius, center = Offset(handX, handY))
             drawCircle(color = Color.White.copy(alpha = 0.6f), radius = handRadius, center = Offset(handX, handY), style = Stroke(1f))
 
-            // Orange illuminated pointer fingertip emitter
+            // Orange illuminated pointer fingertip emitter with expanding ring pulse
             val emitterX = handX + dirX * (handRadius * 0.9f)
             val emitterY = handY + dirY * (handRadius * 0.9f)
             drawCircle(color = primaryOrange, radius = 4f, center = Offset(emitterX, emitterY))
             drawCircle(color = Color(0xFFFFA757), radius = 2f, center = Offset(emitterX, emitterY))
+
+            val pulseRadius = 3.5f + 2.5f * laserPulsePhase
+            val pulseAlpha = (1f - laserPulsePhase).coerceIn(0f, 1f)
+            drawCircle(
+                color = primaryOrange.copy(alpha = pulseAlpha * 0.7f),
+                radius = pulseRadius,
+                center = Offset(emitterX, emitterY),
+                style = Stroke(width = 1.2f)
+            )
 
             // Other hand floating relaxed
             val otherHandX = if (isPointingRight) centerX - headW * 0.45f else centerX + headW * 0.45f
@@ -652,7 +846,7 @@ private fun DrawScope.drawFloatingHands(
             drawCircle(brush = handBrush, radius = handRadius, center = Offset(otherHandX, otherHandY))
         }
 
-        AvatarPresentationState.THINKING -> {
+        state == AvatarPresentationState.THINKING -> {
             // Hand brought up to chin in thoughtful pose
             val leftHandX = centerX - headW * 0.45f
             val leftHandY = centerY + headH * 0.32f
@@ -665,7 +859,7 @@ private fun DrawScope.drawFloatingHands(
             drawCircle(color = Color.White.copy(alpha = 0.6f), radius = handRadius * 1.05f, center = Offset(rightHandX, rightHandY), style = Stroke(1f))
         }
 
-        AvatarPresentationState.SUCCESS -> {
+        state == AvatarPresentationState.SUCCESS -> {
             // Celebratory cheer: both hands raised high \ (^ ^) /
             val leftHandX = centerX - headW * 0.44f
             val leftHandY = centerY - headH * 0.05f
@@ -676,7 +870,7 @@ private fun DrawScope.drawFloatingHands(
             drawCircle(brush = handBrush, radius = handRadius * 1.1f, center = Offset(rightHandX, rightHandY))
         }
 
-        AvatarPresentationState.EXPLAINING -> {
+        state == AvatarPresentationState.EXPLAINING -> {
             // One hand raised open in friendly explanation gesture
             val leftHandX = centerX - headW * 0.45f
             val leftHandY = centerY + headH * 0.30f
@@ -711,11 +905,37 @@ private fun DrawScope.drawStateBadges(
     centerX: Float,
     headTop: Float,
     primaryOrange: Color,
-    auxiliaryPulse: Float
+    auxiliaryPulse: Float,
+    celebrationProgress: Float
 ) {
     val badgeY = headTop - 12f
 
     when (state) {
+        AvatarPresentationState.SUCCESS -> {
+            // Celebratory Confetti Burst Particles (Pillar 6: Micro-Interactions)
+            val colors = listOf(Color(0xFF22C55E), Color(0xFFFBBF24), Color(0xFF38BDF8), Color(0xFFF5792A))
+            val particleCount = 8
+            for (i in 0 until particleCount) {
+                val angle = (i * (6.28318f / particleCount)) + 0.3f
+                val speed = 18f + (i % 3) * 8f
+                val t = celebrationProgress
+                val px = centerX + cos(angle) * (speed * t)
+                val py = (badgeY - 4f) + sin(angle) * (speed * 0.7f * t) - (12f * t)
+                val pAlpha = (1f - t).coerceIn(0f, 1f)
+                val pColor = colors[i % colors.size].copy(alpha = pAlpha)
+                if (i % 2 == 0) {
+                    drawCircle(color = pColor, radius = 2.2f, center = Offset(px, py))
+                } else {
+                    drawRoundRect(
+                        color = pColor,
+                        topLeft = Offset(px - 1.8f, py - 1.8f),
+                        size = Size(3.6f, 3.6f),
+                        cornerRadius = CornerRadius(0.8f, 0.8f)
+                    )
+                }
+            }
+        }
+
         AvatarPresentationState.THINKING -> {
             // Three floating glowing amber dots '...'
             val dotSpacing = 7f
@@ -727,18 +947,17 @@ private fun DrawScope.drawStateBadges(
         }
 
         AvatarPresentationState.RECOVERY -> {
-            // Floating Red Exclamation Badge (!)
-            drawCircle(color = Color(0xFFEF4444), radius = 8f, center = Offset(centerX + 26f, badgeY + 2f))
-            drawCircle(color = Color.White, radius = 8f, center = Offset(centerX + 26f, badgeY + 2f), style = Stroke(1.2f))
-            // Exclamation mark
-            drawLine(
-                color = Color.White,
-                start = Offset(centerX + 26f, badgeY - 2f),
-                end = Offset(centerX + 26f, badgeY + 2.5f),
-                strokeWidth = 2f,
-                cap = StrokeCap.Round
+            // Floating Warm Amber Lightbulb Hint Badge (Pillar 6)
+            val bulbCenter = Offset(centerX + 26f, badgeY + 2f)
+            drawCircle(color = Color(0x33F59E0B), radius = 10f, center = bulbCenter)
+            drawCircle(color = Color(0xFFF59E0B), radius = 6.5f, center = bulbCenter)
+            drawCircle(color = Color(0xFFFEF3C7), radius = 3.5f, center = bulbCenter)
+            drawRoundRect(
+                color = Color(0xFF78350F),
+                topLeft = Offset(bulbCenter.x - 2.5f, bulbCenter.y + 5f),
+                size = Size(5f, 3f),
+                cornerRadius = CornerRadius(1f, 1f)
             )
-            drawCircle(color = Color.White, radius = 1f, center = Offset(centerX + 26f, badgeY + 5.5f))
         }
 
         AvatarPresentationState.OFFLINE -> {

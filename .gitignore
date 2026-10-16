@@ -24,3 +24,5 @@ __pycache__/
 **/test_report/
 composeApp/validation/
 composeApp/composeApp/
+*.log
+replay_pid*.log

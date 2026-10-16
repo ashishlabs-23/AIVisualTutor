@@ -1,8 +1,14 @@
 package bridge
 
+import com.sun.jna.Library
+import com.sun.jna.Native
+import com.sun.jna.Pointer
+import com.sun.jna.Structure
+import com.sun.jna.win32.W32APIOptions
 import java.awt.Rectangle
 import java.util.Base64
 import java.util.concurrent.TimeUnit
+import kotlin.streams.asSequence
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -17,7 +23,9 @@ data class BlenderWindowInfo(
     val isVisible: Boolean,
     val isMinimized: Boolean,
     val isMaximized: Boolean,
-    val isForeground: Boolean
+    val isForeground: Boolean,
+    val clientOrigin: java.awt.Point = java.awt.Point(bounds.x, bounds.y),
+    val clientSize: java.awt.Dimension = java.awt.Dimension(bounds.width, bounds.height)
 )
 
 /**
@@ -40,9 +48,39 @@ interface BlenderWindowLocator {
     suspend fun isWindowValid(hwnd: Long): Boolean = hwnd != 0L
 }
 
+internal interface JnaBlenderUser32 : Library {
+    companion object {
+        val INSTANCE: JnaBlenderUser32 by lazy {
+            Native.load("user32", JnaBlenderUser32::class.java, com.sun.jna.win32.W32APIOptions.DEFAULT_OPTIONS)
+        }
+    }
+
+    @Structure.FieldOrder("x", "y")
+    open class POINT : Structure() {
+        @JvmField var x: Int = 0
+        @JvmField var y: Int = 0
+    }
+
+    fun EnumWindows(lpEnumFunc: com.sun.jna.Callback, lParam: Pointer?): Boolean
+    fun GetWindowThreadProcessId(hWnd: Pointer, lpdwProcessId: IntArray): Int
+    fun IsWindowVisible(hWnd: Pointer): Boolean
+    fun IsIconic(hWnd: Pointer): Boolean
+    fun IsZoomed(hWnd: Pointer): Boolean
+    fun GetWindowRect(hWnd: Pointer, lpRect: IntArray): Boolean
+    fun GetClientRect(hWnd: Pointer, lpRect: IntArray): Boolean
+    fun ClientToScreen(hWnd: Pointer, lpPoint: POINT): Boolean
+    fun GetWindowTextW(hWnd: Pointer, lpString: CharArray, nMaxCount: Int): Int
+    fun GetClassNameW(hWnd: Pointer, lpClassName: CharArray, nMaxCount: Int): Int
+    fun GetForegroundWindow(): Pointer
+    fun ShowWindow(hWnd: Pointer, nCmdShow: Int): Boolean
+    fun SetForegroundWindow(hWnd: Pointer): Boolean
+    fun BringWindowToTop(hWnd: Pointer): Boolean
+    fun IsWindow(hWnd: Pointer): Boolean
+}
+
 /**
- * Windows implementation that uses lightweight Win32 API queries
- * executed via PowerShell C# P/Invoke without external binary or .NET dependencies.
+ * Windows implementation that locates the Blender window using ultra-low latency in-process
+ * Win32 User32 queries via JNA, with transparent fallback to PowerShell P/Invoke.
  */
 class WindowsBlenderWindowLocator : BlenderWindowLocator {
 
@@ -51,6 +89,125 @@ class WindowsBlenderWindowLocator : BlenderWindowLocator {
             return@withContext BlenderWindowResult.Error("Desktop window capture is only supported on Windows.")
         }
 
+        // Fast in-process JNA query first (< 1 millisecond, zero process spawn overhead)
+        try {
+            val jnaResult = locateViaJna()
+            if (jnaResult != null && jnaResult !is BlenderWindowResult.NotRunning) {
+                return@withContext jnaResult
+            }
+            if (jnaResult is BlenderWindowResult.NotRunning) {
+                return@withContext BlenderWindowResult.NotRunning
+            }
+        } catch (_: Throwable) {
+            // Fall through to PowerShell fallback if JNA native call encounters an issue
+        }
+
+        locateViaPowerShell()
+    }
+
+    private fun locateViaJna(): BlenderWindowResult? {
+        val user32 = JnaBlenderUser32.INSTANCE
+        val fgHwnd = user32.GetForegroundWindow()
+
+        var bestInfo: BlenderWindowInfo? = null
+        var bestArea = -1L
+        var foundMinimized: BlenderWindowInfo? = null
+        var isProcessRunning = false
+
+        // Check if blender.exe process is alive
+        val isBlenderAlive = runCatching {
+            ProcessHandle.allProcesses().asSequence().any { proc ->
+                proc.info().command().orElse("").contains("blender", ignoreCase = true)
+            }
+        }.getOrDefault(false)
+
+        val callback = object : com.sun.jna.Callback {
+            fun callback(hWnd: Pointer, lParam: Pointer?): Boolean {
+                val pidArr = IntArray(1)
+                user32.GetWindowThreadProcessId(hWnd, pidArr)
+                val pid = pidArr[0]
+                if (pid <= 0) return true
+
+                val titleBuf = CharArray(512)
+                user32.GetWindowTextW(hWnd, titleBuf, 512)
+                val title = String(titleBuf).trim('\u0000')
+
+                val classBuf = CharArray(256)
+                user32.GetClassNameW(hWnd, classBuf, 256)
+                val className = String(classBuf).trim('\u0000')
+
+                val isBlenderClass = className.equals("GHOST_WindowClass", ignoreCase = true)
+                val isBlenderTitle = title.contains("blender", ignoreCase = true)
+
+                val isBlenderWindow = if (isBlenderClass) {
+                    true
+                } else if (isBlenderTitle) {
+                    val proc = ProcessHandle.of(pid.toLong()).orElse(null)
+                    val cmd = proc?.info()?.command()?.orElse("") ?: ""
+                    cmd.contains("blender", ignoreCase = true)
+                } else {
+                    false
+                }
+
+                if (!isBlenderWindow) {
+                    return true
+                }
+                isProcessRunning = true
+
+                val visible = user32.IsWindowVisible(hWnd)
+                val rect = IntArray(4)
+                user32.GetWindowRect(hWnd, rect)
+                val width = rect[2] - rect[0]
+                val height = rect[3] - rect[1]
+                val area = width.toLong() * height.toLong()
+
+                val clientRect = IntArray(4)
+                user32.GetClientRect(hWnd, clientRect)
+                val clientW = clientRect[2] - clientRect[0]
+                val clientH = clientRect[3] - clientRect[1]
+
+                val pt = JnaBlenderUser32.POINT().apply { x = 0; y = 0 }
+                user32.ClientToScreen(hWnd, pt)
+
+                val isIconic = user32.IsIconic(hWnd) || rect[0] <= -30000
+                val isZoomed = user32.IsZoomed(hWnd)
+                val isFg = (hWnd == fgHwnd)
+                val hwndLong = Pointer.nativeValue(hWnd)
+
+                val info = BlenderWindowInfo(
+                    hwnd = hwndLong,
+                    processId = pid.toLong(),
+                    title = title,
+                    bounds = Rectangle(rect[0], rect[1], width, height),
+                    isVisible = visible,
+                    isMinimized = isIconic,
+                    isMaximized = isZoomed,
+                    isForeground = isFg,
+                    clientOrigin = java.awt.Point(pt.x, pt.y),
+                    clientSize = java.awt.Dimension(clientW, clientH)
+                )
+
+                if (isIconic && foundMinimized == null) {
+                    foundMinimized = info
+                } else if (visible && area > bestArea && width > 100 && height > 100) {
+                    bestArea = area
+                    bestInfo = info
+                }
+                return true
+            }
+        }
+
+        user32.EnumWindows(callback, null)
+
+        return when {
+            bestInfo != null -> BlenderWindowResult.Found(bestInfo!!)
+            foundMinimized != null -> BlenderWindowResult.Minimized(foundMinimized!!)
+            !isProcessRunning && !isBlenderAlive -> BlenderWindowResult.NotRunning
+            else -> null // Request fallback to PowerShell
+        }
+    }
+
+    private fun locateViaPowerShell(): BlenderWindowResult {
         val csharpSource = """
             using System;
             using System.Diagnostics;
@@ -152,16 +309,16 @@ class WindowsBlenderWindowLocator : BlenderWindowLocator {
         """.trimIndent()
 
         val output = runPowerShell(csharpSource, "[AivtBlenderFinder]::Find()")
-            ?: return@withContext BlenderWindowResult.Error("Could not inspect Windows desktop for Blender window.")
+            ?: return BlenderWindowResult.Error("Could not inspect Windows desktop for Blender window.")
 
         val lastLine = output.lineSequence().lastOrNull()?.trim() ?: ""
-        when {
+        return when {
             lastLine == "NOT_RUNNING" -> BlenderWindowResult.NotRunning
             lastLine == "NOT_FOUND" -> BlenderWindowResult.Error("Blender is running, but no active Blender workspace window was identified.")
             lastLine.startsWith("FOUND|") -> {
                 val parts = lastLine.split('|')
                 if (parts.size < 12) {
-                    return@withContext BlenderWindowResult.Error("Malformed window query response from Windows: $lastLine")
+                    return BlenderWindowResult.Error("Malformed window query response from Windows: $lastLine")
                 }
                 val hwnd = parts[1].toLongOrNull() ?: 0L
                 val pid = parts[2].toLongOrNull() ?: 0L
@@ -205,6 +362,21 @@ class WindowsBlenderWindowLocator : BlenderWindowLocator {
             return@withContext false
         }
 
+        // Fast in-process JNA activation
+        try {
+            val user32 = JnaBlenderUser32.INSTANCE
+            val ptr = Pointer(hwnd)
+            if (user32.IsIconic(ptr)) {
+                user32.ShowWindow(ptr, 9) // SW_RESTORE only when minimized
+            }
+            user32.BringWindowToTop(ptr)
+            user32.SetForegroundWindow(ptr)
+            if (user32.GetForegroundWindow() == ptr) {
+                return@withContext true
+            }
+        } catch (_: Throwable) {
+        }
+
         val csharpSource = """
             using System;
             using System.Runtime.InteropServices;
@@ -246,6 +418,12 @@ class WindowsBlenderWindowLocator : BlenderWindowLocator {
     override suspend fun isWindowValid(hwnd: Long): Boolean = withContext(Dispatchers.IO) {
         if (!System.getProperty("os.name").startsWith("Windows", ignoreCase = true) || hwnd == 0L) {
             return@withContext false
+        }
+        try {
+            if (JnaBlenderUser32.INSTANCE.IsWindow(Pointer(hwnd))) {
+                return@withContext true
+            }
+        } catch (_: Throwable) {
         }
         val csharpSource = """
             using System;

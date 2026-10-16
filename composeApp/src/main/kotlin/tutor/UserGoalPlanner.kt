@@ -169,7 +169,7 @@ class UserGoalPlanner(
                 conceptualHint = "Press Tab or use the top-left dropdown in the 3D Viewport to check mode.",
                 fallbackHint = "Look at the top-left mode selector of the 3D Viewport and ensure it says 'Object Mode'.",
                 reflectionQuestion = "Which mode in Blender allows creating new independent objects in the scene?",
-                targetRegion = HighlightRegion(x = 100f, y = 78f, width = 80f, height = 28f)
+                targetRegion = HighlightRegion(x = 45f, y = 26f, width = 125f, height = 31f)
             ),
             UserGoalPlanStep(
                 stepId = "step_2",
@@ -204,7 +204,7 @@ class UserGoalPlanner(
                 conceptualHint = "Verify that 'Sphere' appears in the Outliner hierarchy on the right side.",
                 fallbackHint = "If the Sphere is not in the Outliner, ensure you are in Object Mode and press Shift+A > Mesh > UV Sphere.",
                 reflectionQuestion = "Where in Blender's interface can you see the hierarchical list of all objects in the scene?",
-                targetRegion = HighlightRegion(x = 420f, y = 280f, width = 300f, height = 240f)
+                targetRegion = HighlightRegion(x = 670f, y = 360f, width = 300f, height = 260f)
             )
         )
 
@@ -258,7 +258,7 @@ class UserGoalPlanner(
                 conceptualHint = "Press Tab to toggle between Edit Mode and Object Mode.",
                 fallbackHint = "Verify the top-left dropdown in the 3D Viewport reads 'Object Mode'.",
                 reflectionQuestion = "Which mode must you be in to add a separate Cube primitive to the scene?",
-                targetRegion = HighlightRegion(x = 100f, y = 78f, width = 80f, height = 28f)
+                targetRegion = HighlightRegion(x = 45f, y = 26f, width = 125f, height = 31f)
             ),
             UserGoalPlanStep(
                 stepId = "step_2",
@@ -293,7 +293,7 @@ class UserGoalPlanner(
                 conceptualHint = "Check the Outliner panel on the top-right of Blender to confirm the Cube exists.",
                 fallbackHint = "If the cube did not appear, verify you are in Object Mode and try Shift+A > Mesh > Cube again.",
                 reflectionQuestion = "How do you verify whether an object was successfully added to the current scene?",
-                targetRegion = HighlightRegion(x = 420f, y = 280f, width = 300f, height = 240f)
+                targetRegion = HighlightRegion(x = 670f, y = 360f, width = 300f, height = 260f)
             )
         )
 
@@ -346,7 +346,8 @@ class UserGoalPlanner(
                 prerequisiteStepIds = emptyList(),
                 verificationStrategy = VerificationStrategy.AUTHORITATIVE_STATE,
                 conceptualHint = "Press Tab or use the top-left dropdown in the 3D Viewport to enter Object Mode.",
-                fallbackHint = "Verify that the mode dropdown displays 'Object Mode'."
+                fallbackHint = "Verify that the mode dropdown displays 'Object Mode'.",
+                targetRegion = HighlightRegion(x = 45f, y = 26f, width = 125f, height = 31f)
             ),
             UserGoalPlanStep(
                 stepId = "step_2",
@@ -449,7 +450,8 @@ class UserGoalPlanner(
                 targetControlName = "Mode",
                 targetedOutcomeIds = listOf("out_mode_obj"),
                 prerequisiteStepIds = emptyList(),
-                verificationStrategy = VerificationStrategy.AUTHORITATIVE_STATE
+                verificationStrategy = VerificationStrategy.AUTHORITATIVE_STATE,
+                targetRegion = HighlightRegion(x = 45f, y = 26f, width = 125f, height = 31f)
             ),
             UserGoalPlanStep(
                 stepId = "step_2",

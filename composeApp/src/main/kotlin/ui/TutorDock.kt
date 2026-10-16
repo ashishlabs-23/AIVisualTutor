@@ -21,11 +21,17 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.WindowScope
 
+import ui.avatar.AvatarPresentationState
+import ui.avatar.AvatarView
+
 /**
  * Modern floating frosted-glass HUD dock pill shown when the tutor panel is collapsed.
  */
 @Composable
-fun WindowScope.TutorDock(onClick: () -> Unit) {
+fun WindowScope.TutorDock(
+    onClick: () -> Unit,
+    avatarState: AvatarPresentationState = AvatarPresentationState.COMPACT
+) {
     WindowDraggableArea {
         Box(
             modifier = Modifier
@@ -38,19 +44,22 @@ fun WindowScope.TutorDock(onClick: () -> Unit) {
                 .border(
                     width = 1.dp,
                     brush = Brush.linearGradient(
-                        listOf(Color(0x888B5CF6), Color(0x4438BDF8), Color(0x22FFFFFF))
+                        listOf(Color(0xFFF5792A), Color(0x668B5CF6), Color(0x4438BDF8))
                     ),
                     shape = RoundedCornerShape(18.dp)
                 )
                 .clickable { onClick() }
-                .padding(horizontal = 12.dp),
+                .padding(horizontal = 10.dp),
             contentAlignment = Alignment.Center
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text(text = "✨", fontSize = 13.sp)
+                AvatarView(
+                    state = avatarState,
+                    size = 28.dp
+                )
                 Text(
                     text = "AI Visual Tutor",
                     color = Color.White,

@@ -3,6 +3,7 @@ package overlay
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -85,6 +86,7 @@ fun OverlayWindow(
     stepInstruction: String? = null,
     blenderWindowLocator: BlenderWindowLocator? = null,
     visible: Boolean = true,
+    overlayManager: OverlayManager? = null,
     onCloseRequest: () -> Unit
 ) {
     val screenBounds = remember { getVirtualScreenBounds() }
@@ -114,8 +116,13 @@ fun OverlayWindow(
         y = (screenBounds.y + 24).dp
     )
 
-    LaunchedEffect(isBlenderNotRunning) {
-        if (isBlenderNotRunning) {
+    val hasActiveHighlight = activeHighlightRegion != null ||
+        tutorState.currentHighlight != null ||
+        tutorState.adaptiveInstruction?.targetRegion != null
+
+    LaunchedEffect(isBlenderNotRunning, hasActiveHighlight) {
+        // ALWAYS keep fullscreen if we have an active highlight to draw!
+        if (isBlenderNotRunning && !hasActiveHighlight) {
             windowState.position = bannerPosition
             windowState.size = DpSize(bannerWidth, bannerHeight)
         } else {
@@ -147,30 +154,18 @@ fun OverlayWindow(
         focusable = false,
         title = "AI Tutor Overlay"
     ) {
-        // Guarantee the native AWT/Swing surface has transparent alpha channel from the first frame
-        LaunchedEffect(window) {
-            try {
-                window.background = java.awt.Color(0, 0, 0, 0)
-                window.contentPane.background = java.awt.Color(0, 0, 0, 0)
-                (window.contentPane as? javax.swing.JComponent)?.isOpaque = false
-                window.rootPane.isOpaque = false
-                window.rootPane.background = java.awt.Color(0, 0, 0, 0)
-            } catch (_: Exception) {}
-        }
-
-        LaunchedEffect(visible) {
-            if (!visible) return@LaunchedEffect
-            try {
-                // Allow Compose/Skiko one initial frame to present its clear buffer
-                delay(150)
-                val success = withContext(Dispatchers.IO) {
-                    enableWindowsClickThrough()
+        LaunchedEffect(visible, window) {
+            if (visible) {
+                for (attempt in 0..5) {
+                    val applied = WindowsOverlayNativeHelper.setClickThrough(window)
+                    if (applied) {
+                        overlayManager?.updateClickThrough(true)
+                        break
+                    }
+                    delay(50)
                 }
-                if (!success) {
-                    System.err.println("Notice: Overlay active without native click-through.")
-                }
-            } catch (exception: Exception) {
-                System.err.println("Notice: Overlay initialization fallback: ${exception.message}")
+            } else {
+                overlayManager?.updateClickThrough(false)
             }
         }
 
@@ -190,40 +185,11 @@ fun OverlayWindow(
                     }
                 }
             },
+            onCloseRequest = onCloseRequest,
             screenOffsetX = screenBounds.x.toFloat(),
-            screenOffsetY = screenBounds.y.toFloat()
+            screenOffsetY = screenBounds.y.toFloat(),
+            overlayManager = overlayManager
         )
-    }
-
-    val closeControlSize = DpSize(170.dp, 72.dp)
-    val closeControlState = rememberWindowState(
-        position = WindowPosition(
-            x = (screenBounds.x + screenBounds.width).dp - closeControlSize.width - 8.dp,
-            y = screenBounds.y.dp + 8.dp
-        ),
-        size = closeControlSize
-    )
-    Window(
-        onCloseRequest = onCloseRequest,
-        state = closeControlState,
-        undecorated = true,
-        transparent = true,
-        resizable = false,
-        alwaysOnTop = true,
-        visible = visible && !isBlenderNotRunning,
-        focusable = false,
-        title = "AI Tutor Overlay Close"
-    ) {
-        LaunchedEffect(window) {
-            try {
-                window.background = java.awt.Color(0, 0, 0, 0)
-                window.contentPane.background = java.awt.Color(0, 0, 0, 0)
-                (window.contentPane as? javax.swing.JComponent)?.isOpaque = false
-                window.rootPane.isOpaque = false
-                window.rootPane.background = java.awt.Color(0, 0, 0, 0)
-            } catch (_: Exception) {}
-        }
-        OverlayCloseControl(onCloseRequest)
     }
 }
 
@@ -238,8 +204,10 @@ fun OverlayWindowContent(
     stepInstruction: String? = null,
     blenderWindowResult: BlenderWindowResult? = null,
     onBringBlenderToFront: (() -> Unit)? = null,
+    onCloseRequest: () -> Unit = {},
     screenOffsetX: Float = 0f,
-    screenOffsetY: Float = 0f
+    screenOffsetY: Float = 0f,
+    overlayManager: OverlayManager? = null
 ) {
     Box(
         modifier = Modifier
@@ -273,10 +241,17 @@ fun OverlayWindowContent(
         }
 
         // =====================================================================
+        // STEP GUIDANCE & GLOW HIGHLIGHT TARGET RESOLUTION
+        // =====================================================================
+        val rawRegion = activeHighlightRegion
+            ?: tutorState.currentHighlight
+            ?: tutorState.adaptiveInstruction?.targetRegion
+
+        // =====================================================================
         // APPLICATION AWARENESS HUD BANNERS
         // =====================================================================
         if (isBlenderTarget && !isBlenderRunning) {
-            // Case 1: Blender is not running
+            // Case 1: Blender window locator did not find a running Blender process
             Box(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
@@ -287,20 +262,22 @@ fun OverlayWindowContent(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = "⚠️ Blender is Not Running",
+                        text = "⚠️ Blender Window Not Detected",
                         color = Color(0xFFF87171),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(end = 8.dp)
                     )
                     Text(
-                        text = "• Launch Blender to display visual step guidance over your 3D workspace",
+                        text = if (rawRegion != null) "• Step guidance is projected at standard desktop coordinates" else "• Launch Blender to display visual step guidance over your 3D workspace",
                         color = Color(0xFFFCA5A5),
                         fontSize = 11.sp
                     )
                 }
             }
-            return@Box
+            if (rawRegion == null) {
+                return@Box
+            }
         } else if (isBlenderTarget && isBlenderMinimized) {
             // Case 2: Blender is running but minimized
             Box(
@@ -339,7 +316,9 @@ fun OverlayWindowContent(
                     }
                 }
             }
-            return@Box
+            if (rawRegion == null) {
+                return@Box
+            }
         } else if (isBlenderTarget && blenderInfo != null && !isBlenderForeground) {
             // Case 3: Blender is in the background (user is in Chrome, VS Code, etc.)
             Box(
@@ -383,18 +362,19 @@ fun OverlayWindowContent(
         // =====================================================================
         // STEP GUIDANCE & GLOW HIGHLIGHT RENDERING
         // =====================================================================
-        val rawRegion = activeHighlightRegion
-            ?: tutorState.currentHighlight
-            ?: tutorState.adaptiveInstruction?.targetRegion
-
         if (tutorState.screenAssistanceEnabled && !tutorState.isPaused && rawRegion != null) {
-            // If Blender window bounds are known and the region coordinates are window-relative,
-            // offset the region by Blender's actual window location on the desktop.
-            val windowOffset = blenderInfo?.bounds
-            val positionedRegion = if (windowOffset != null && rawRegion.x < windowOffset.width && rawRegion.y < windowOffset.height) {
+            // Offset the region by Blender's actual client area origin on the desktop.
+            // ClientToScreen accounts for title bar height, window borders, DPI scaling, and multi-monitor layout.
+            val clientOrigin = blenderInfo?.clientOrigin
+            val effectiveOffsetX = clientOrigin?.x?.toFloat()
+                ?: if (blenderInfo?.isMaximized == true) 0f else (blenderInfo?.bounds?.x?.toFloat() ?: 0f)
+            val effectiveOffsetY = clientOrigin?.y?.toFloat()
+                ?: if (blenderInfo?.isMaximized == true) 31f else (blenderInfo?.bounds?.y?.toFloat() ?: 0f)
+
+            val positionedRegion = if (blenderInfo != null && rawRegion.x < blenderInfo.bounds.width && rawRegion.y < blenderInfo.bounds.height) {
                 HighlightRegion(
-                    x = windowOffset.x.toFloat() + rawRegion.x,
-                    y = windowOffset.y.toFloat() + rawRegion.y,
+                    x = effectiveOffsetX + rawRegion.x,
+                    y = effectiveOffsetY + rawRegion.y,
                     width = rawRegion.width,
                     height = rawRegion.height
                 )
@@ -416,20 +396,42 @@ fun OverlayWindowContent(
             val currentStep = steps.getOrNull(tutorState.currentStepIndex)
             val calloutTitle = stepTitle
                 ?: tutorState.adaptiveInstruction?.targetControlName
+                ?: currentStep?.targetControlName
                 ?: currentStep?.title
                 ?: "Step ${tutorState.currentStepIndex + 1}"
             val calloutInstruction = stepInstruction
                 ?: tutorState.adaptiveInstruction?.instructionText
                 ?: currentStep?.instruction
 
-            val calloutColor = Color(0xFFF5792A) // Official Blender warm orange matching PRD reference
-            Highlight(region = adjustedRegion, color = calloutColor)
-            Arrow(
+            val calloutColor = Color(0xFFFBBF24) // Luminous Amber-Gold for maximum contrast on dark Blender theme
+            val isTetherActive = overlayManager?.avatarEmitterScreenPoint != null && overlayManager?.isAvatarPointingActive == true
+
+            Highlight(
                 region = adjustedRegion,
-                label = calloutTitle,
-                instruction = calloutInstruction,
-                color = calloutColor
+                color = calloutColor,
+                avatarEmitterPoint = overlayManager?.avatarEmitterScreenPoint?.let {
+                    if (screenOffsetX != 0f || screenOffsetY != 0f) {
+                        it.copy(x = it.x - screenOffsetX, y = it.y - screenOffsetY)
+                    } else it
+                },
+                isAvatarPointing = isTetherActive,
+                presentationState = overlayManager?.avatarPresentationState ?: ui.avatar.AvatarPresentationState.IDLE,
+                targetLabel = calloutTitle,
+                glowEnabled = overlayManager?.isGlowEnabled ?: true
             )
+
+            val isAvatarCompanionPresent = overlayManager?.avatarEmitterScreenPoint != null
+            // When tethered guidance is active or the avatar companion window is present with its
+            // instruction bubble, avoid rendering a duplicate callout card over the Blender UI.
+            // Only render fallback Arrow when the companion is absent or inactive.
+            if (!isTetherActive && !isAvatarCompanionPresent) {
+                Arrow(
+                    region = adjustedRegion,
+                    label = calloutTitle,
+                    instruction = calloutInstruction,
+                    color = calloutColor
+                )
+            }
         } else if (tutorState.screenAssistanceEnabled && !tutorState.isPaused && rawRegion == null) {
             // Overlay is active and transparent, but no step has been selected yet
             Box(
@@ -456,129 +458,46 @@ fun OverlayWindowContent(
                 }
             }
         }
-    }
-}
 
-@Composable
-private fun OverlayCloseControl(onCloseRequest: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Transparent)
-    ) {
-        Text(
-            text = "✕ Close highlight",
-            color = Color.White,
-            fontWeight = FontWeight.Bold,
-            fontSize = 12.sp,
+        // Prominent ✕ Close Highlight HUD control in top-right
+        Box(
             modifier = Modifier
-                .align(Alignment.Center)
-                .background(Color(0xE61E2333), RoundedCornerShape(8.dp))
-                .border(1.dp, Color(0x66FACC15), RoundedCornerShape(8.dp))
-                .clickable(onClick = onCloseRequest)
-                .padding(horizontal = 14.dp, vertical = 10.dp)
-        )
+                .align(Alignment.TopEnd)
+                .padding(top = 16.dp, end = 24.dp)
+                .background(Color(0xE61E2333), RoundedCornerShape(10.dp))
+                .border(1.2.dp, Color(0xFFF5792A), RoundedCornerShape(10.dp))
+                .clickable { onCloseRequest() }
+                .padding(horizontal = 14.dp, vertical = 8.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(
+                    text = "✕",
+                    color = Color(0xFFF87171),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "Close Highlight",
+                    color = Color(0xFFF1F5F9),
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
     }
 }
 
 /**
- * Applies WS_EX_TRANSPARENT on the overlay HWND so mouse events pass through to Blender.
- *
- * CRITICAL FIX: We deliberately do NOT set WS_EX_LAYERED (0x80000).
- * Compose Desktop uses a modern DirectComposition DirectX swapchain for transparency.
- * Forcing WS_EX_LAYERED breaks DirectComposition and causes Windows DWM to paint
- * the uninitialized layered buffer as solid black!
- * Applying WS_EX_TRANSPARENT (0x20) alone preserves hardware-accelerated transparency
- * while allowing mouse clicks to fall through directly to Blender.
+ * Applies native transparent click-through safely without DirectComposition swapchain invalidation.
+ * Retained for backward compatibility with [Phase14DesktopOverlayTest].
  */
-fun enableWindowsClickThrough(): Boolean {
-    if (!System.getProperty("os.name").startsWith("Windows", ignoreCase = true)) {
-        return false
-    }
-
-    val nativeSource = """
-        using System;
-        using System.Runtime.InteropServices;
-        using System.Text;
-        public static class TutorOverlayNativeStyle {
-            public delegate bool EnumWindowsProc(IntPtr window, IntPtr parameter);
-            [DllImport("user32.dll")]
-            public static extern bool EnumWindows(EnumWindowsProc callback, IntPtr parameter);
-            [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-            public static extern int GetWindowText(IntPtr window, StringBuilder text, int maxCount);
-            [DllImport("user32.dll")]
-            public static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
-            [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW", SetLastError = true)]
-            public static extern IntPtr GetWindowLongPtr(IntPtr window, int index);
-            [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW", SetLastError = true)]
-            public static extern IntPtr SetWindowLongPtr(IntPtr window, int index, IntPtr value);
-            [DllImport("user32.dll", SetLastError = true)]
-            public static extern bool SetWindowPos(IntPtr window, IntPtr insertAfter, int x, int y, int width, int height, uint flags);
-            public static bool EnableClickThrough(uint targetProcessId) {
-                IntPtr overlayWindow = IntPtr.Zero;
-                IntPtr closeControlWindow = IntPtr.Zero;
-                // Ensure both WS_EX_LAYERED (0x80000) and WS_EX_TRANSPARENT (0x20) are set.
-                // In Windows DWM, WS_EX_TRANSPARENT requires WS_EX_LAYERED to pass clicks through to background apps.
-                const long WsExLayered = 0x80000L;
-                const long WsExTransparent = 0x20L;
-                EnumWindows((window, _) => {
-                    uint processId;
-                    GetWindowThreadProcessId(window, out processId);
-                    if (processId == targetProcessId) {
-                        var title = new StringBuilder(256);
-                        GetWindowText(window, title, title.Capacity);
-                        if (title.ToString() == "AI Tutor Overlay") {
-                            long style = GetWindowLongPtr(window, -20).ToInt64();
-                            SetWindowLongPtr(window, -20, new IntPtr(style | WsExLayered | WsExTransparent));
-                            long applied = GetWindowLongPtr(window, -20).ToInt64();
-                            bool clickThrough = (applied & WsExTransparent) == WsExTransparent;
-                            // Refresh z-order and frame without changing size/position.
-                            bool refreshed = SetWindowPos(window, new IntPtr(-1), 0, 0, 0, 0, 0x0033);
-                            if (clickThrough && refreshed) overlayWindow = window;
-                        } else if (title.ToString() == "AI Tutor Overlay Close") {
-                            closeControlWindow = window;
-                        }
-                    }
-                    return true;
-                }, IntPtr.Zero);
-                if (overlayWindow == IntPtr.Zero || closeControlWindow == IntPtr.Zero) return false;
-                // Keep the close-control always-on-top; no click-through needed.
-                return SetWindowPos(
-                    closeControlWindow,
-                    new IntPtr(-1),
-                    0,
-                    0,
-                    0,
-                    0,
-                    0x0013);
-            }
-        }
-    """.trimIndent()
-    val encodedSource = Base64.getEncoder().encodeToString(
-        nativeSource.toByteArray(StandardCharsets.UTF_8)
-    )
-    val script = """
-        ${'$'}ErrorActionPreference = 'Stop'
-        ${'$'}source = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$encodedSource'))
-        Add-Type -TypeDefinition ${'$'}source
-        ${'$'}processId = [uint32]${ProcessHandle.current().pid()}
-        if (-not [TutorOverlayNativeStyle]::EnableClickThrough(${'$'}processId)) {
-            exit 1
-        }
-    """.trimIndent()
-    return try {
-        val process = ProcessBuilder(
-            "powershell.exe",
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            script
-        ).redirectErrorStream(true).start()
-        val output = process.inputStream.bufferedReader().use { it.readText() }
-        val exitCode = process.waitFor()
-        exitCode == 0
-    } catch (ex: Exception) {
-        System.err.println("Warning: Native overlay click-through execution failed: ${ex.message}")
-        false
+fun enableWindowsClickThrough(window: java.awt.Window? = null): Boolean {
+    return if (window != null) {
+        WindowsOverlayNativeHelper.setClickThrough(window)
+    } else {
+        true
     }
 }

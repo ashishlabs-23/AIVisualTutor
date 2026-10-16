@@ -253,4 +253,94 @@ class TargetGuidanceGeometryTest {
 
         assertEquals(run1, run2)
     }
+
+    // =========================================================================
+    // TARGET DOCKING POSITION CALCULATOR TESTS
+    // =========================================================================
+
+    @Test
+    fun `target in center of viewport docks avatar to right with robot on left pointing left`() {
+        // Target: 3D Viewport Sphere at (670, 360, 300, 260) -> center at (820, 490)
+        val sphereTarget = ScreenRect(670f, 360f, 300f, 260f)
+        val screen = ScreenPoint(1920f, 1080f)
+        val window = ScreenPoint(440f, 260f)
+
+        val docking = TargetDockPositionCalculator.calculateDockPosition(
+            target = sphereTarget,
+            screenSize = screen,
+            windowSize = window,
+            gap = 24f,
+            margin = 20f
+        )
+
+        // Space on right: 1920 - (670 + 300 + 24 + 440 + 20) = 466px >= 0 -> Docks to RIGHT of target
+        assertEquals(DockSide.RIGHT_OF_TARGET, docking.dockSide)
+        assertFalse(docking.isAvatarOnRight, "Avatar should be on left edge of window pointing left into sphere")
+        assertEquals(994f, docking.position.x, 0.001f, "Window X should be target.x + target.width + gap (670 + 300 + 24 = 994)")
+        assertEquals(360f, docking.position.y, 0.001f, "Window Y should vertically center with target (490 - 130 = 360)")
+    }
+
+    @Test
+    fun `target near right screen edge docks avatar to left with robot on right pointing right`() {
+        // Target in Blender Outliner / Properties panel at X=1600, Y=200, W=220, H=40
+        val outlinerTarget = ScreenRect(1600f, 200f, 220f, 40f)
+        val screen = ScreenPoint(1920f, 1080f)
+        val window = ScreenPoint(440f, 260f)
+
+        val docking = TargetDockPositionCalculator.calculateDockPosition(
+            target = outlinerTarget,
+            screenSize = screen,
+            windowSize = window,
+            gap = 24f,
+            margin = 20f
+        )
+
+        // Space on right: 1920 - (1600 + 220 + 24 + 440 + 20) < 0 -> Docks to LEFT of target
+        assertEquals(DockSide.LEFT_OF_TARGET, docking.dockSide)
+        assertTrue(docking.isAvatarOnRight, "Avatar should be on right edge of window pointing right into outliner")
+        assertEquals(1136f, docking.position.x, 0.001f, "Window X should be target.x - window.x - gap (1600 - 440 - 24 = 1136)")
+    }
+
+    @Test
+    fun `target near top edge clamps vertical coordinate to preserve margin`() {
+        // Target in 3D Viewport header menu at Y=40
+        val topTarget = ScreenRect(200f, 40f, 100f, 30f) // Center Y = 55
+        val docking = TargetDockPositionCalculator.calculateDockPosition(
+            target = topTarget,
+            screenSize = ScreenPoint(1920f, 1080f),
+            windowSize = ScreenPoint(440f, 260f),
+            margin = 20f
+        )
+
+        // 55 - 130 = -75 -> Clamped to margin + 20 = 40
+        assertEquals(40f, docking.position.y, 0.001f)
+    }
+
+    @Test
+    fun `target near bottom edge clamps vertical coordinate to preserve taskbar margin`() {
+        // Target near timeline at bottom Y=980
+        val bottomTarget = ScreenRect(500f, 980f, 100f, 40f) // Center Y = 1000
+        val docking = TargetDockPositionCalculator.calculateDockPosition(
+            target = bottomTarget,
+            screenSize = ScreenPoint(1920f, 1080f),
+            windowSize = ScreenPoint(440f, 260f),
+            margin = 20f
+        )
+
+        // 1000 - 130 = 870 -> Clamped to 1080 - 260 - 20 - 30 = 770
+        assertEquals(770f, docking.position.y, 0.001f)
+    }
+
+    @Test
+    fun `null or invalid target bounds return safe resting dock position`() {
+        val nullResult = TargetDockPositionCalculator.calculateDockPosition(null)
+        assertEquals(DockSide.LEFT_OF_TARGET, nullResult.dockSide)
+        assertTrue(nullResult.isAvatarOnRight)
+        assertTrue(nullResult.position.x > 0f)
+        assertTrue(nullResult.position.y > 0f)
+
+        val zeroWidthResult = TargetDockPositionCalculator.calculateDockPosition(ScreenRect(100f, 100f, 0f, 50f))
+        assertEquals(DockSide.LEFT_OF_TARGET, zeroWidthResult.dockSide)
+    }
 }
+

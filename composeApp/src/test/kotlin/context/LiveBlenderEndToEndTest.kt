@@ -315,6 +315,52 @@ class LiveBlenderEndToEndTest {
         }
     }
 
+    @Test
+    fun testPhase12ModeTransitionInLiveBlender() = runBlocking {
+        withLiveInteractiveBlender { port, triggerFile ->
+            val provider = BlenderTcpStateProvider(port)
+            val workflow = BlenderVerificationWorkflow(provider)
+
+            // Step 1: Expected OBJECT mode
+            val expected = ExpectedState(
+                operation = VerificationOperation.MODIFY,
+                targetMode = "OBJECT"
+            )
+
+            // Step 2: Capture baseline (initially in OBJECT mode)
+            val run = workflow.captureBaseline(expected)
+            assertNotNull(run.baseline)
+            assertEquals("OBJECT", run.baseline!!.mode)
+
+            // Step 3: Switch to EDIT mode in Blender
+            triggerAction(triggerFile, "import bpy; bpy.ops.object.mode_set(mode='EDIT')")
+            Thread.sleep(600)
+
+            // Observe live mode directly
+            val editObs = provider.observe()
+            assertEquals("EDIT_MESH", editObs.mode)
+
+            // Step 4: Verify action requiring OBJECT mode while in EDIT_MESH mode (negative test)
+            val failResult = workflow.verifyAction(run)
+            println("Phase 12 Negative Mode Result: ${failResult.status} - ${failResult.explanation}")
+            assertEquals(VerificationStatus.FAILURE, failResult.status)
+            assertTrue(failResult.unsatisfiedConditions.any { it.field == ExpectedStateField.MODE })
+
+            // Step 5: Switch back to OBJECT mode in Blender
+            triggerAction(triggerFile, "import bpy; bpy.ops.object.mode_set(mode='OBJECT')")
+            Thread.sleep(600)
+
+            val objObs = provider.observe()
+            assertEquals("OBJECT", objObs.mode)
+
+            // Step 6: Verify action requiring OBJECT mode (positive test)
+            val successResult = workflow.verifyAction(run)
+            println("Phase 12 Positive Mode Result: ${successResult.status} - ${successResult.explanation}")
+            assertEquals(VerificationStatus.SUCCESS, successResult.status)
+            assertTrue(successResult.satisfiedConditions.any { it.field == ExpectedStateField.MODE })
+        }
+    }
+
     private fun triggerAction(triggerFile: File, pythonCode: String) {
         triggerFile.writeText(pythonCode)
     }

@@ -21,20 +21,32 @@ class LiveProductionVerificationDiagnosticTest {
         triggerFile.writeText(pythonCode)
     }
 
+    private fun resolveBlenderExe(): File {
+        val path = System.getenv("AIVT_BLENDER_EXECUTABLE")
+            ?.takeIf(String::isNotBlank)
+            ?: "C:\\Program Files\\Blender Foundation\\Blender 5.2\\blender.exe"
+        return File(path)
+    }
+
+    private fun resolveAddon(): File {
+        return listOf(
+            File("blender/ai_visual_tutor_state/__init__.py"),
+            File("../blender/ai_visual_tutor_state/__init__.py"),
+            File(System.getProperty("user.dir"), "blender/ai_visual_tutor_state/__init__.py"),
+            File(System.getProperty("user.dir"), "../blender/ai_visual_tutor_state/__init__.py")
+        ).firstOrNull { it.isFile }
+            ?: error("Addon file not found")
+    }
+
     @Test
     fun testFullProductionWorkflowWithLiveBlender() = runBlocking {
-        val blenderExe = File("D:\\blender.exe")
-        assumeTrue("D:\\blender.exe must exist", blenderExe.isFile)
+        val blenderExe = resolveBlenderExe()
+        assumeTrue("Blender executable must exist at ${blenderExe.absolutePath}", blenderExe.isFile)
 
         ProcessBuilder("taskkill", "/F", "/IM", "blender.exe").start().waitFor()
         delay(1000)
 
-        val addon = listOf(
-            File("blender/ai_visual_tutor_state/__init__.py"),
-            File("../blender/ai_visual_tutor_state/__init__.py"),
-            File("d:/AIVisualTutor/AIVisualTutor-main/blender/ai_visual_tutor_state/__init__.py")
-        ).firstOrNull { it.isFile }
-        assertNotNull(addon, "Addon file must exist")
+        val addon = resolveAddon()
 
         val triggerDir = Files.createTempDirectory("aivt_test_trigger").toFile()
         val triggerFile = File(triggerDir, "action.py")
@@ -146,18 +158,13 @@ class LiveProductionVerificationDiagnosticTest {
 
     @Test
     fun testLiveNavigationDirectlyToStep3AutoReconcilesPrerequisites() = runBlocking {
-        val blenderExe = File("D:\\blender.exe")
-        assumeTrue("D:\\blender.exe must exist", blenderExe.isFile)
+        val blenderExe = resolveBlenderExe()
+        assumeTrue("Blender executable must exist at ${blenderExe.absolutePath}", blenderExe.isFile)
 
         ProcessBuilder("taskkill", "/F", "/IM", "blender.exe").start().waitFor()
         delay(1000)
 
-        val addon = listOf(
-            File("blender/ai_visual_tutor_state/__init__.py"),
-            File("../blender/ai_visual_tutor_state/__init__.py"),
-            File("d:/AIVisualTutor/AIVisualTutor-main/blender/ai_visual_tutor_state/__init__.py")
-        ).firstOrNull { it.isFile }
-        assertNotNull(addon, "Addon file must exist")
+        val addon = resolveAddon()
 
         val triggerDir = Files.createTempDirectory("aivt_test_trigger_nav").toFile()
         val triggerFile = File(triggerDir, "action.py")

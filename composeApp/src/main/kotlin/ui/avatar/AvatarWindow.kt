@@ -49,6 +49,7 @@ import kotlinx.coroutines.launch
 import overlay.OverlayManager
 import pedagogy.PedagogicalOutcome
 import tutor.TutorController
+import tutor.TutorConversationState
 
 /**
  * Production Integrated Avatar Window for AI Visual Tutor.
@@ -74,7 +75,7 @@ fun AvatarWindow(
     onCloseRequest: () -> Unit = {},
     windowState: WindowState = rememberWindowState(
         position = WindowPosition(x = 100.dp, y = 100.dp),
-        size = DpSize(440.dp, 260.dp)
+        size = DpSize(440.dp, 270.dp)
     )
 ) {
     val coroutineScope = rememberCoroutineScope()
@@ -85,11 +86,13 @@ fun AvatarWindow(
     var highlightFeedback by remember { mutableStateOf<String?>(null) }
     val isExplainBusy = coordinator.isThinking
     val explanationText = coordinator.latestExplanationText
+    val conversationState = coordinator.state
     var isRecoveryActive by remember { mutableStateOf(false) }
+    var isExplanationDismissed by remember(explanationText, conversationState) { mutableStateOf(false) }
 
-    // Dynamic window resizing based on presentation mode and explanation expansion
-    val isExplainingActive = isExplainBusy || !explanationText.isNullOrBlank()
-    val expandedHeight = if (isExplainingActive) 360.dp else 260.dp
+    // Dynamic window resizing based on presentation mode and explanation/conversation expansion
+    val isExplainingActive = isExplainBusy || ((!explanationText.isNullOrBlank() || conversationState is TutorConversationState.Error) && !isExplanationDismissed)
+    val expandedHeight = if (isExplainingActive) 380.dp else 270.dp
     val expandedSize = DpSize(440.dp, expandedHeight)
     val compactSize = DpSize(190.dp, 60.dp)
 
@@ -203,7 +206,8 @@ fun AvatarWindow(
             TargetDockPositionCalculator.calculateDockPosition(
                 target = activeTargetRegion.toScreenRect(),
                 screenSize = ScreenPoint(screenWidth, screenHeight),
-                windowSize = ScreenPoint(windowState.size.width.value, windowState.size.height.value)
+                windowSize = ScreenPoint(windowState.size.width.value, windowState.size.height.value),
+                avoidHeaderObstruction = true
             )
         } else {
             null
@@ -546,12 +550,16 @@ fun AvatarWindow(
                                                 }
                                                 val targetRegion = result.region ?: step?.targetRegion
                                                 if (targetRegion != null) {
+                                                    if (!controller.state.screenAssistanceEnabled) {
+                                                        controller.toggleScreenAssistance()
+                                                    }
                                                     controller.setHighlight(targetRegion)
                                                     overlayManager.showOverlay(targetRegion)
                                                     val dock = TargetDockPositionCalculator.calculateDockPosition(
                                                         target = targetRegion.toScreenRect(),
                                                         screenSize = ScreenPoint(screenWidth, screenHeight),
-                                                        windowSize = ScreenPoint(windowState.size.width.value, windowState.size.height.value)
+                                                        windowSize = ScreenPoint(windowState.size.width.value, windowState.size.height.value),
+                                                        avoidHeaderObstruction = true
                                                     )
                                                     flightTargetPosition = dock.position
                                                     highlightFeedback = "✓ Target highlighted on screen"
@@ -559,12 +567,16 @@ fun AvatarWindow(
                                                     highlightFeedback = "Notice: Target location approximate"
                                                     val fallbackRegion = step?.targetRegion
                                                     if (fallbackRegion != null) {
+                                                        if (!controller.state.screenAssistanceEnabled) {
+                                                            controller.toggleScreenAssistance()
+                                                        }
                                                         controller.setHighlight(fallbackRegion)
                                                         overlayManager.showOverlay(fallbackRegion)
                                                         val dock = TargetDockPositionCalculator.calculateDockPosition(
                                                             target = fallbackRegion.toScreenRect(),
                                                             screenSize = ScreenPoint(screenWidth, screenHeight),
-                                                            windowSize = ScreenPoint(windowState.size.width.value, windowState.size.height.value)
+                                                            windowSize = ScreenPoint(windowState.size.width.value, windowState.size.height.value),
+                                                            avoidHeaderObstruction = true
                                                         )
                                                         flightTargetPosition = dock.position
                                                     }
@@ -583,9 +595,27 @@ fun AvatarWindow(
                                     },
                                     onToggleWorkspace = onToggleWorkspace,
                                     isWorkspaceOpen = isWorkspaceOpen,
-                                    onDismissExplanation = { coordinator.clearActiveExplanation() },
+                                    onDismissExplanation = {
+                                        isExplanationDismissed = true
+                                        coordinator.clearActiveExplanation()
+                                    },
                                     onStartTutorialClick = {
                                         controller.goToStep(0)
+                                    },
+                                    conversationState = conversationState,
+                                    onFollowUpSubmit = { query ->
+                                        coroutineScope.launch {
+                                            coordinator.askTutor(
+                                                query = query,
+                                                source = chat.ConversationSource.AVATAR_BUBBLE
+                                            )
+                                        }
+                                    },
+                                    onCancelQuery = {
+                                        coordinator.cancelActiveQuery()
+                                    },
+                                    onRetryQuery = {
+                                        coordinator.retryLastQuery()
                                     }
                                 )
                             }
